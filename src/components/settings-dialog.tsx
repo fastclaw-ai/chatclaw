@@ -24,14 +24,12 @@ export function SettingsDialog() {
   const [testState, setTestState] = useState<TestState>("idle");
   const [testError, setTestError] = useState("");
 
-  // Show on first visit when no settings
   useEffect(() => {
     if (state.settingsLoaded && !state.settings?.gatewayUrl) {
       setOpen(true);
     }
   }, [state.settingsLoaded, state.settings?.gatewayUrl]);
 
-  // Sync form when dialog opens
   useEffect(() => {
     if (open && state.settings) {
       setUrl(state.settings.gatewayUrl);
@@ -64,9 +62,9 @@ export function SettingsDialog() {
         variant="ghost"
         size="icon"
         onClick={() => setOpen(true)}
-        className="h-8 w-8"
+        className="size-8"
       >
-        <Settings className="h-4 w-4" />
+        <Settings className="size-4" />
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-md">
@@ -102,13 +100,13 @@ export function SettingsDialog() {
             </div>
             {testState === "error" && (
               <div className="flex items-center gap-2 text-sm text-red-400">
-                <XCircle className="h-4 w-4" />
+                <XCircle className="size-4" />
                 {testError}
               </div>
             )}
             {testState === "success" && (
               <div className="flex items-center gap-2 text-sm text-emerald-400">
-                <CheckCircle2 className="h-4 w-4" />
+                <CheckCircle2 className="size-4" />
                 Connection successful!
               </div>
             )}
@@ -119,7 +117,7 @@ export function SettingsDialog() {
                 disabled={!url || !token || testState === "testing"}
               >
                 {testState === "testing" && (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  <Loader2 className="mr-2 size-4 animate-spin" />
                 )}
                 Test Connection
               </Button>

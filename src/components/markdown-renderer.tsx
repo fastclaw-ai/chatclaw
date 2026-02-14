@@ -18,7 +18,7 @@ function CopyButton({ code }: { code: string }) {
   return (
     <button
       onClick={handleCopy}
-      className="absolute right-2 top-2 rounded-md p-1.5 text-muted-foreground hover:text-foreground hover:bg-white/10 transition-colors"
+      className="absolute right-2 top-2 rounded-md p-1.5 text-muted-foreground hover:text-foreground hover:bg-black/10 dark:hover:bg-white/10 transition-colors"
       aria-label="Copy code"
     >
       {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
@@ -49,7 +49,7 @@ export function MarkdownRenderer({ content }: { content: string }) {
             <div className="relative group my-3">
               <CopyButton code={code} />
               <pre
-                className="overflow-x-auto rounded-lg bg-zinc-900 p-4 text-sm leading-relaxed"
+                className="overflow-x-auto rounded-lg bg-[#f6f8fa] dark:bg-zinc-900 p-4 text-sm leading-relaxed"
                 {...props}
               >
                 {children}

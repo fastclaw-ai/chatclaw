@@ -83,21 +83,21 @@
   --sidebar-ring: oklch(0.708 0 0);
 }
 
-/* Dark theme — Claude.ai inspired dark navy/charcoal */
+/* Dark theme — deep navy/charcoal inspired by Claude.ai */
 .dark {
-  --background: oklch(0.16 0.005 260);
+  --background: oklch(0.14 0.006 260);
   --foreground: oklch(0.93 0 0);
-  --card: oklch(0.2 0.005 260);
+  --card: oklch(0.18 0.006 260);
   --card-foreground: oklch(0.93 0 0);
-  --popover: oklch(0.2 0.005 260);
+  --popover: oklch(0.18 0.006 260);
   --popover-foreground: oklch(0.93 0 0);
   --primary: oklch(0.88 0 0);
-  --primary-foreground: oklch(0.16 0.005 260);
-  --secondary: oklch(0.24 0.005 260);
+  --primary-foreground: oklch(0.14 0.006 260);
+  --secondary: oklch(0.22 0.006 260);
   --secondary-foreground: oklch(0.88 0 0);
-  --muted: oklch(0.22 0.005 260);
-  --muted-foreground: oklch(0.6 0 0);
-  --accent: oklch(0.24 0.005 260);
+  --muted: oklch(0.20 0.006 260);
+  --muted-foreground: oklch(0.58 0 0);
+  --accent: oklch(0.22 0.006 260);
   --accent-foreground: oklch(0.88 0 0);
   --destructive: oklch(0.65 0.2 22);
   --border: oklch(1 0 0 / 8%);
@@ -108,11 +108,11 @@
   --chart-3: oklch(0.769 0.188 70.08);
   --chart-4: oklch(0.627 0.265 303.9);
   --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.13 0.005 260);
+  --sidebar: oklch(0.11 0.006 260);
   --sidebar-foreground: oklch(0.88 0 0);
-  --sidebar-primary: oklch(0.75 0.15 264);
-  --sidebar-primary-foreground: oklch(0.93 0 0);
-  --sidebar-accent: oklch(0.2 0.005 260);
+  --sidebar-primary: oklch(0.88 0 0);
+  --sidebar-primary-foreground: oklch(0.11 0.006 260);
+  --sidebar-accent: oklch(0.18 0.006 260);
   --sidebar-accent-foreground: oklch(0.88 0 0);
   --sidebar-border: oklch(1 0 0 / 8%);
   --sidebar-ring: oklch(0.5 0 0);
@@ -123,8 +123,54 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground overflow-hidden;
   }
+}
+
+/* Highlight.js light theme for code blocks (GitHub-inspired) */
+pre code.hljs {
+  color: #24292e;
+}
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-section,
+.hljs-link {
+  color: #d73a49;
+}
+.hljs-string,
+.hljs-title,
+.hljs-name,
+.hljs-type,
+.hljs-attribute,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-addition,
+.hljs-variable,
+.hljs-template-tag,
+.hljs-template-variable {
+  color: #032f62;
+}
+.hljs-comment,
+.hljs-quote,
+.hljs-deletion,
+.hljs-meta {
+  color: #6a737d;
+}
+.hljs-number,
+.hljs-regexp,
+.hljs-literal,
+.hljs-built_in {
+  color: #005cc5;
+}
+.hljs-function .hljs-keyword {
+  color: #d73a49;
+}
+.hljs-params {
+  color: #24292e;
+}
+.hljs-attr {
+  color: #6f42c1;
 }
 
 /* Highlight.js dark theme for code blocks */

@@ -318,6 +318,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const newConversation = useCallback(async () => {
+    // If current conversation is empty (no messages), just stay on it
+    const current = stateRef.current;
+    if (current.activeConversationId) {
+      const activeConv = current.conversations.find(c => c.id === current.activeConversationId);
+      if (activeConv && activeConv.title === "New Chat" && current.messages.length === 0) {
+        return current.activeConversationId;
+      }
+    }
+
     const id = uuidv4();
     const sessionKey = uuidv4();
     const conv = await createConversation(id, sessionKey, "New Chat");

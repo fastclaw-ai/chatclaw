@@ -3,38 +3,48 @@
 import { useEffect, useRef } from "react";
 import { useStore } from "@/lib/store";
 import { MarkdownRenderer } from "@/components/markdown-renderer";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Bot, User } from "lucide-react";
+import { Bot, User, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 
 function EmptyState() {
   return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-4 px-4">
-      <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10">
-        <Bot className="h-8 w-8 text-primary" />
+    <div className="flex flex-1 flex-col items-center justify-center gap-6 px-4">
+      <div className="flex size-16 items-center justify-center rounded-2xl bg-primary/10 ring-1 ring-primary/20">
+        <Zap className="size-7 text-primary" />
       </div>
       <div className="text-center">
-        <h3 className="text-lg font-semibold">Start a conversation</h3>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Type a message to begin chatting with your agent.
+        <h3 className="text-lg font-semibold tracking-tight">
+          Start a conversation
+        </h3>
+        <p className="mt-2 max-w-sm text-sm text-muted-foreground">
+          Type a message below to begin chatting with your AI agent.
         </p>
       </div>
     </div>
   );
 }
 
+function StreamingDots() {
+  return (
+    <div className="flex items-center gap-1 py-1">
+      <span className="size-1.5 rounded-full bg-muted-foreground/50 animate-bounce [animation-delay:0ms]" />
+      <span className="size-1.5 rounded-full bg-muted-foreground/50 animate-bounce [animation-delay:150ms]" />
+      <span className="size-1.5 rounded-full bg-muted-foreground/50 animate-bounce [animation-delay:300ms]" />
+    </div>
+  );
+}
+
 function StreamingCursor() {
   return (
-    <span className="inline-block w-2 h-4 ml-0.5 bg-foreground/70 animate-pulse align-text-bottom" />
+    <span className="inline-block w-1.5 h-4 ml-0.5 bg-primary/70 animate-pulse align-text-bottom rounded-sm" />
   );
 }
 
 export function ChatMessages() {
   const { state } = useStore();
   const bottomRef = useRef<HTMLDivElement>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll to bottom on new messages or streaming
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [state.messages, state.streamingContent]);
@@ -50,78 +60,96 @@ export function ChatMessages() {
   }
 
   return (
-    <ScrollArea className="flex-1" ref={scrollRef}>
-      <div className="mx-auto max-w-3xl px-4 py-6 space-y-6">
-        {state.messages.map((msg) => (
-          <div
-            key={msg.id}
-            className={cn(
-              "flex gap-3",
-              msg.role === "user" ? "justify-end" : "justify-start"
-            )}
-          >
-            {msg.role === "assistant" && (
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10">
-                {state.agentIdentity?.emoji ? (
-                  <span className="text-sm">{state.agentIdentity.emoji}</span>
-                ) : (
-                  <Bot className="h-4 w-4 text-primary" />
+    <div className="flex-1 overflow-y-auto">
+      <div className="mx-auto max-w-3xl px-4 py-8">
+        <div className="space-y-6">
+          {state.messages.map((msg) => (
+            <div key={msg.id} className="flex gap-4">
+              <Avatar
+                className={cn(
+                  "size-8 shrink-0 mt-0.5",
+                  msg.role === "user"
+                    ? "bg-secondary"
+                    : "bg-primary/10 ring-1 ring-primary/20"
                 )}
-              </div>
-            )}
-            <div
-              className={cn(
-                "max-w-[85%] rounded-2xl px-4 py-3 text-sm",
-                msg.role === "user"
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted"
-              )}
-            >
-              {msg.role === "assistant" ? (
-                <MarkdownRenderer content={msg.content} />
-              ) : (
-                <p className="whitespace-pre-wrap">{msg.content}</p>
-              )}
-            </div>
-            {msg.role === "user" && (
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-secondary">
-                <User className="h-4 w-4" />
-              </div>
-            )}
-          </div>
-        ))}
+              >
+                <AvatarFallback
+                  className={cn(
+                    msg.role === "user"
+                      ? "bg-secondary text-secondary-foreground"
+                      : "bg-primary/10 text-primary"
+                  )}
+                >
+                  {msg.role === "user" ? (
+                    <User className="size-4" />
+                  ) : state.agentIdentity?.emoji ? (
+                    <span className="text-sm">
+                      {state.agentIdentity.emoji}
+                    </span>
+                  ) : (
+                    <Bot className="size-4" />
+                  )}
+                </AvatarFallback>
+              </Avatar>
 
-        {/* Streaming message */}
-        {state.isStreaming && (
-          <div className="flex gap-3 justify-start">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10">
-              {state.agentIdentity?.emoji ? (
-                <span className="text-sm">{state.agentIdentity.emoji}</span>
-              ) : (
-                <Bot className="h-4 w-4 text-primary" />
-              )}
-            </div>
-            <div className="max-w-[85%] rounded-2xl px-4 py-3 text-sm bg-muted">
-              {state.streamingContent ? (
-                <>
-                  <MarkdownRenderer content={state.streamingContent} />
-                  <StreamingCursor />
-                </>
-              ) : (
-                <div className="flex items-center gap-1.5">
-                  <div className="flex gap-1">
-                    <span className="h-2 w-2 rounded-full bg-muted-foreground/40 animate-bounce [animation-delay:0ms]" />
-                    <span className="h-2 w-2 rounded-full bg-muted-foreground/40 animate-bounce [animation-delay:150ms]" />
-                    <span className="h-2 w-2 rounded-full bg-muted-foreground/40 animate-bounce [animation-delay:300ms]" />
-                  </div>
+              <div className="min-w-0 flex-1">
+                <p className="mb-1 text-xs font-medium text-muted-foreground">
+                  {msg.role === "user"
+                    ? "You"
+                    : state.agentIdentity?.name ?? "Assistant"}
+                </p>
+                <div
+                  className={cn(
+                    "text-sm leading-relaxed",
+                    msg.role === "user"
+                      ? "rounded-xl bg-muted/50 px-4 py-3"
+                      : "prose-sm"
+                  )}
+                >
+                  {msg.role === "assistant" ? (
+                    <MarkdownRenderer content={msg.content} />
+                  ) : (
+                    <p className="whitespace-pre-wrap">{msg.content}</p>
+                  )}
                 </div>
-              )}
+              </div>
             </div>
-          </div>
-        )}
+          ))}
 
-        <div ref={bottomRef} />
+          {state.isStreaming && (
+            <div className="flex gap-4">
+              <Avatar className="size-8 shrink-0 mt-0.5 bg-primary/10 ring-1 ring-primary/20">
+                <AvatarFallback className="bg-primary/10 text-primary">
+                  {state.agentIdentity?.emoji ? (
+                    <span className="text-sm">
+                      {state.agentIdentity.emoji}
+                    </span>
+                  ) : (
+                    <Bot className="size-4" />
+                  )}
+                </AvatarFallback>
+              </Avatar>
+              <div className="min-w-0 flex-1">
+                <p className="mb-1 text-xs font-medium text-muted-foreground">
+                  {state.agentIdentity?.name ?? "Assistant"}
+                </p>
+                <div className="text-sm leading-relaxed">
+                  {state.streamingContent ? (
+                    <>
+                      <MarkdownRenderer content={state.streamingContent} />
+                      <StreamingCursor />
+                    </>
+                  ) : (
+                    <StreamingDots />
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div ref={bottomRef} />
+        </div>
       </div>
-    </ScrollArea>
+    </div>
   );
 }

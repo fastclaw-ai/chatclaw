@@ -3,31 +3,35 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useStore } from "@/lib/store";
 import { Button } from "@/components/ui/button";
-import { Send, Square } from "lucide-react";
+import { ArrowUp, Square } from "lucide-react";
+import { cn } from "@/lib/utils";
+
+const MIN_HEIGHT = 72; // ~3 rows
+const MAX_HEIGHT = 300;
 
 export function ChatInput() {
   const { state, actions } = useStore();
   const [input, setInput] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const composingRef = useRef(false);
 
   const canSend =
     input.trim().length > 0 &&
     !state.isStreaming &&
     state.connectionStatus === "connected";
 
-  // Auto-resize textarea
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = "auto";
-    el.style.height = Math.min(el.scrollHeight, 200) + "px";
+    const next = Math.max(MIN_HEIGHT, Math.min(el.scrollHeight, MAX_HEIGHT));
+    el.style.height = next + "px";
   }, [input]);
 
   const handleSend = useCallback(async () => {
     const text = input.trim();
     if (!text || state.isStreaming) return;
 
-    // Create conversation if none active
     let convId = state.activeConversationId;
     if (!convId) {
       convId = await actions.newConversation();
@@ -38,55 +42,71 @@ export function ChatInput() {
   }, [input, state.isStreaming, state.activeConversationId, actions]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (e.key === "Enter" && !e.shiftKey && !composingRef.current) {
       e.preventDefault();
       if (canSend) handleSend();
     }
   };
 
   return (
-    <div className="border-t border-border bg-background/80 backdrop-blur-sm">
-      <div className="mx-auto max-w-3xl px-4 py-3">
-        <div className="flex items-end gap-2 rounded-xl border border-border bg-muted/50 px-3 py-2">
+    <div className="shrink-0 bg-gradient-to-t from-background via-background to-background/80 pt-2 pb-4">
+      <div className="mx-auto max-w-3xl px-4">
+        <div
+          className={cn(
+            "relative flex items-end gap-3 rounded-3xl border border-border/60 bg-muted/40 px-5 py-4",
+            "shadow-sm transition-all duration-200",
+            "focus-within:border-primary/40 focus-within:bg-muted/60 focus-within:shadow-md focus-within:shadow-primary/5"
+          )}
+        >
           <textarea
             ref={textareaRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
+            onCompositionStart={() => { composingRef.current = true; }}
+            onCompositionEnd={() => { composingRef.current = false; }}
             placeholder={
               state.connectionStatus !== "connected"
                 ? "Connect to a gateway first..."
                 : state.activeConversationId
-                  ? "Type a message..."
+                  ? "Send a message..."
                   : "Start a new conversation..."
             }
             disabled={state.connectionStatus !== "connected"}
-            rows={1}
-            className="flex-1 resize-none bg-transparent text-sm outline-none placeholder:text-muted-foreground/60 disabled:opacity-50 max-h-[200px]"
+            rows={3}
+            className={cn(
+              "flex-1 resize-none bg-transparent text-base outline-none leading-relaxed",
+              "placeholder:text-muted-foreground/40 placeholder:leading-relaxed",
+              "disabled:cursor-not-allowed disabled:opacity-40",
+              "transition-[height] duration-150 ease-out"
+            )}
+            style={{ minHeight: MIN_HEIGHT, maxHeight: MAX_HEIGHT }}
           />
           {state.isStreaming ? (
             <Button
-              variant="ghost"
               size="icon"
+              variant="destructive"
               onClick={() => actions.abortStreaming()}
-              className="h-8 w-8 shrink-0 text-red-400 hover:text-red-300"
+              className="mb-0.5 size-10 shrink-0 rounded-full shadow-sm"
             >
-              <Square className="h-4 w-4 fill-current" />
+              <Square className="size-4 fill-current" />
             </Button>
           ) : (
             <Button
-              variant="ghost"
               size="icon"
               onClick={handleSend}
               disabled={!canSend}
-              className="h-8 w-8 shrink-0"
+              className={cn(
+                "mb-0.5 size-10 shrink-0 rounded-full shadow-sm transition-opacity",
+                canSend ? "opacity-100" : "opacity-50"
+              )}
             >
-              <Send className="h-4 w-4" />
+              <ArrowUp className="size-5" />
             </Button>
           )}
         </div>
-        <p className="mt-1.5 text-center text-[10px] text-muted-foreground/50">
-          Enter to send, Shift+Enter for new line
+        <p className="mt-2 text-center text-[10px] text-muted-foreground/30">
+          Enter to send &middot; Shift+Enter for new line
         </p>
       </div>
     </div>
