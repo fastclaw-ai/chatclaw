@@ -35,6 +35,7 @@ import {
   MoreHorizontal,
   Search,
 } from "lucide-react";
+import Image from 'next/image'
 
 export function AppSidebar() {
   const { state, actions } = useStore();
@@ -68,13 +69,12 @@ export function AppSidebar() {
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" className="pointer-events-none">
-              <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-                <Zap className="size-4" />
+              <div className="flex aspect-square size-8 items-center justify-center rounded-lg overflow-hidden">
+                <Image src="/logo.png" alt="ChatClaw" width={32} height={32} />
               </div>
               <div className="grid flex-1 text-left text-sm leading-tight">
                 <span className="truncate font-semibold">ChatClaw</span>
                 <span className="truncate text-xs text-sidebar-foreground/60">
-                  OpenClaw Client
                 </span>
               </div>
             </SidebarMenuButton>
@@ -82,7 +82,6 @@ export function AppSidebar() {
         </SidebarMenu>
       </SidebarHeader>
 
-      <SidebarSeparator />
 
       {/* Search */}
       <div className="px-2 pt-1 group-data-[collapsible=icon]:hidden">
