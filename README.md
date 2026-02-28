@@ -21,7 +21,7 @@ Think ChatGPT/Claude.ai UX, but connecting to your own OpenClaw agent.
 
 ```bash
 # Clone
-git clone https://github.com/fastclaw-ai/chatclaw.git
+git clone https://github.com/idoubi/chatclaw.git
 cd chatclaw
 
 # Install dependencies
