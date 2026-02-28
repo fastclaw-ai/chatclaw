@@ -39,6 +39,10 @@ export async function updateTheme(theme: "dark" | "light"): Promise<void> {
 
 // ── Conversation helpers ────────────────────────────────────────────
 
+export async function getConversation(id: string): Promise<Conversation | undefined> {
+  return db.conversations.get(id);
+}
+
 export async function getAllConversations(): Promise<Conversation[]> {
   return db.conversations.orderBy("updatedAt").reverse().toArray();
 }
@@ -65,6 +69,13 @@ export async function deleteConversation(id: string): Promise<void> {
   await db.transaction("rw", db.conversations, db.messages, async () => {
     await db.messages.where("conversationId").equals(id).delete();
     await db.conversations.delete(id);
+  });
+}
+
+export async function deleteAllConversations(): Promise<void> {
+  await db.transaction("rw", db.conversations, db.messages, async () => {
+    await db.messages.clear();
+    await db.conversations.clear();
   });
 }
 

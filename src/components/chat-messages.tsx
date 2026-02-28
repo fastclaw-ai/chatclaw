@@ -3,15 +3,16 @@
 import { useEffect, useRef } from "react";
 import { useStore } from "@/lib/store";
 import { MarkdownRenderer } from "@/components/markdown-renderer";
-import { Bot, User, Zap } from "lucide-react";
+import { Bot, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import Image from "next/image";
 
 function EmptyState() {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-6 px-4">
-      <div className="flex size-16 items-center justify-center rounded-2xl bg-primary/10 ring-1 ring-primary/20">
-        <Zap className="size-7 text-primary" />
+      <div className="flex size-20 items-center justify-center rounded-2xl overflow-hidden">
+        <Image src="/logo.png" alt="ChatClaw" width={80} height={80} />
       </div>
       <div className="text-center">
         <h3 className="text-lg font-semibold tracking-tight">
@@ -53,7 +54,11 @@ export function ChatMessages() {
     return <EmptyState />;
   }
 
-  const hasMessages = state.messages.length > 0 || state.isStreaming;
+  const isStreamingHere =
+    state.isStreaming &&
+    state.streamingConversationId === state.activeConversationId;
+
+  const hasMessages = state.messages.length > 0 || isStreamingHere;
 
   if (!hasMessages) {
     return <EmptyState />;
@@ -116,7 +121,7 @@ export function ChatMessages() {
             </div>
           ))}
 
-          {state.isStreaming && (
+          {isStreamingHere && (
             <div className="flex gap-4">
               <Avatar className="size-8 shrink-0 mt-0.5 bg-primary/10 ring-1 ring-primary/20">
                 <AvatarFallback className="bg-primary/10 text-primary">

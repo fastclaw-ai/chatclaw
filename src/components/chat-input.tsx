@@ -15,11 +15,16 @@ export function ChatInput() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const composingRef = useRef(false);
 
+  const isStreamingHere =
+    state.isStreaming &&
+    state.streamingConversationId === state.activeConversationId;
+
   const canSend =
     input.trim().length > 0 &&
-    !state.isStreaming &&
+    !isStreamingHere &&
     state.connectionStatus === "connected";
 
+  // Auto-resize textarea
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
@@ -28,18 +33,19 @@ export function ChatInput() {
     el.style.height = next + "px";
   }, [input]);
 
-  const handleSend = useCallback(async () => {
-    const text = input.trim();
-    if (!text || state.isStreaming) return;
+  // Auto-focus when conversation changes (e.g. new chat)
+  useEffect(() => {
+    textareaRef.current?.focus();
+  }, [state.activeConversationId]);
 
-    let convId = state.activeConversationId;
-    if (!convId) {
-      convId = await actions.newConversation();
-    }
+  const handleSend = useCallback(() => {
+    const text = input.trim();
+    if (!text || isStreamingHere) return;
 
     setInput("");
-    await actions.sendMessage(text, convId);
-  }, [input, state.isStreaming, state.activeConversationId, actions]);
+    // sendMessage handles conversation creation if needed
+    actions.sendMessage(text, state.activeConversationId || undefined);
+  }, [input, isStreamingHere, state.activeConversationId, actions]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey && !composingRef.current) {
@@ -82,14 +88,14 @@ export function ChatInput() {
             )}
             style={{ minHeight: MIN_HEIGHT, maxHeight: MAX_HEIGHT }}
           />
-          {state.isStreaming ? (
+          {isStreamingHere ? (
             <Button
               size="icon"
               variant="destructive"
               onClick={() => actions.abortStreaming()}
-              className="mb-0.5 size-10 shrink-0 rounded-full shadow-sm"
+              className="mb-0.5 size-8 shrink-0 rounded-full shadow-sm"
             >
-              <Square className="size-4 fill-current" />
+              <Square className="size-3.5 fill-current" />
             </Button>
           ) : (
             <Button
@@ -97,11 +103,11 @@ export function ChatInput() {
               onClick={handleSend}
               disabled={!canSend}
               className={cn(
-                "mb-0.5 size-10 shrink-0 rounded-full shadow-sm transition-opacity",
+                "mb-0.5 size-8 shrink-0 rounded-full shadow-sm transition-opacity",
                 canSend ? "opacity-100" : "opacity-50"
               )}
             >
-              <ArrowUp className="size-5" />
+              <ArrowUp className="size-4" />
             </Button>
           )}
         </div>

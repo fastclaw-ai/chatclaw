@@ -30,12 +30,23 @@ export function SettingsDialog() {
     }
   }, [state.settingsLoaded, state.settings?.gatewayUrl]);
 
+  // Fill fields when dialog opens
   useEffect(() => {
-    if (open && state.settings) {
-      setUrl(state.settings.gatewayUrl);
-      setToken(state.settings.token);
+    if (open) {
+      setUrl(state.settings?.gatewayUrl || state.detectedGatewayUrl || "");
+      setToken(state.settings?.token || state.detectedToken || "");
     }
   }, [open, state.settings]);
+
+  // Auto-fill detected values if dialog is already open and fields are empty
+  useEffect(() => {
+    if (open && !url && state.detectedGatewayUrl) {
+      setUrl(state.detectedGatewayUrl);
+    }
+    if (open && !token && state.detectedToken) {
+      setToken(state.detectedToken);
+    }
+  }, [open, url, token, state.detectedGatewayUrl, state.detectedToken]);
 
   const handleTest = async () => {
     if (!url || !token) return;
@@ -78,7 +89,7 @@ export function SettingsDialog() {
             <div className="space-y-2">
               <label className="text-sm font-medium">Gateway URL</label>
               <Input
-                placeholder="ws://localhost:9099"
+                placeholder="ws://localhost:18789"
                 value={url}
                 onChange={(e) => {
                   setUrl(e.target.value);

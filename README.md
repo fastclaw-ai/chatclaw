@@ -4,7 +4,7 @@ A polished, open-source web chat client for [OpenClaw](https://github.com/opencl
 
 Think ChatGPT/Claude.ai UX, but connecting to your own OpenClaw agent.
 
-🌐 **Live:** [chatclaw.im](https://chatclaw.im)
+![ChatClaw Preview](./preview.png)
 
 ## Features
 

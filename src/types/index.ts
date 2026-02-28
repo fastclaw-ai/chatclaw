@@ -108,8 +108,13 @@ export interface AppState {
   // Messages for active conversation
   messages: Message[];
 
+  // Auto-detect
+  detectedGatewayUrl: string | null;
+  detectedToken: string | null;
+
   // Streaming
   isStreaming: boolean;
   streamingContent: string;
   currentRunId: string | null;
+  streamingConversationId: string | null;
 }

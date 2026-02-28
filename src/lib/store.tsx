@@ -14,9 +14,11 @@ import {
   saveSettings,
   updateTheme,
   getAllConversations,
+  getConversation,
   createConversation,
   updateConversationTitle,
   deleteConversation as dbDeleteConversation,
+  deleteAllConversations as dbDeleteAllConversations,
   getMessages,
   addMessage,
 } from "@/lib/db";
@@ -45,7 +47,8 @@ type Action =
   | { type: "SET_ACTIVE_CONVERSATION"; id: string | null }
   | { type: "SET_MESSAGES"; messages: Message[] }
   | { type: "ADD_MESSAGE"; message: Message }
-  | { type: "SET_STREAMING"; isStreaming: boolean }
+  | { type: "SET_DETECTED_GATEWAY"; url: string | null; token: string | null }
+  | { type: "SET_STREAMING"; isStreaming: boolean; conversationId?: string | null }
   | { type: "SET_STREAMING_CONTENT"; content: string; runId: string | null }
   | { type: "SET_THEME"; theme: "dark" | "light" };
 
@@ -58,10 +61,13 @@ const initialState: AppState = {
   agentIdentity: null,
   conversations: [],
   activeConversationId: null,
+  detectedGatewayUrl: null,
+  detectedToken: null,
   messages: [],
   isStreaming: false,
   streamingContent: "",
   currentRunId: null,
+  streamingConversationId: null,
 };
 
 // ── Reducer ─────────────────────────────────────────────────────────
@@ -103,6 +109,8 @@ function reducer(state: AppState, action: Action): AppState {
       };
     case "SET_ACTIVE_CONVERSATION":
       return { ...state, activeConversationId: action.id };
+    case "SET_DETECTED_GATEWAY":
+      return { ...state, detectedGatewayUrl: action.url, detectedToken: action.token };
     case "SET_MESSAGES":
       return { ...state, messages: action.messages };
     case "ADD_MESSAGE":
@@ -111,7 +119,9 @@ function reducer(state: AppState, action: Action): AppState {
       return {
         ...state,
         isStreaming: action.isStreaming,
-        ...(action.isStreaming ? {} : { streamingContent: "", currentRunId: null }),
+        ...(action.isStreaming
+          ? { streamingConversationId: action.conversationId ?? state.streamingConversationId }
+          : { streamingContent: "", currentRunId: null, streamingConversationId: null }),
       };
     case "SET_STREAMING_CONTENT":
       return {
@@ -152,6 +162,8 @@ interface StoreActions {
   newConversation: () => Promise<string>;
   selectConversation: (id: string) => Promise<void>;
   deleteConversation: (id: string) => Promise<void>;
+  deleteAllConversations: () => Promise<void>;
+  renameConversation: (id: string, title: string) => Promise<void>;
   sendMessage: (content: string, convId?: string) => Promise<void>;
   abortStreaming: () => Promise<void>;
   toggleTheme: () => Promise<void>;
@@ -347,13 +359,37 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     dispatch({ type: "REMOVE_CONVERSATION", id });
   }, []);
 
+  const doRenameConversation = useCallback(async (id: string, title: string) => {
+    await updateConversationTitle(id, title);
+    dispatch({ type: "UPDATE_CONVERSATION_TITLE", id, title });
+  }, []);
+
+  const doDeleteAllConversations = useCallback(async () => {
+    await dbDeleteAllConversations();
+    dispatch({ type: "SET_CONVERSATIONS", conversations: [] });
+    dispatch({ type: "SET_ACTIVE_CONVERSATION", id: null });
+    dispatch({ type: "SET_MESSAGES", messages: [] });
+  }, []);
+
   const sendMessageAction = useCallback(async (content: string, convId?: string) => {
     const current = stateRef.current;
-    const activeId = convId || current.activeConversationId; if (!activeId || current.isStreaming) return;
+    let activeId = convId || current.activeConversationId;
 
-    const conv = current.conversations.find(
+    // Create a new conversation if needed
+    if (!activeId) {
+      activeId = await newConversation();
+    }
+
+    // Only block sending if this conversation is already streaming
+    if (current.isStreaming && current.streamingConversationId === activeId) return;
+
+    // Try state first, fall back to DB (state may not have re-rendered yet)
+    let conv = stateRef.current.conversations.find(
       (c) => c.id === activeId
     );
+    if (!conv) {
+      conv = await getConversation(activeId!);
+    }
     if (!conv) return;
 
     // Add user message to DB and state
@@ -379,7 +415,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }
 
     // Start streaming
-    dispatch({ type: "SET_STREAMING", isStreaming: true });
+    dispatch({ type: "SET_STREAMING", isStreaming: true, conversationId: activeId });
     lastTextRef.current = "";
 
     // Send via gateway
@@ -421,8 +457,19 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // ── Init ────────────────────────────────────────────────────────
 
   useEffect(() => {
-    loadSettings().then(() => {
+    loadSettings().then(async () => {
       loadConversations();
+      // If no saved settings, try to detect local OpenClaw config
+      const s = stateRef.current.settings;
+      if (!s?.gatewayUrl) {
+        try {
+          const res = await fetch("/api/detect-gateway");
+          const data = await res.json();
+          if (data.found) {
+            dispatch({ type: "SET_DETECTED_GATEWAY", url: data.url, token: data.token });
+          }
+        } catch { /* ignore */ }
+      }
     });
     return () => {
       resetGateway();
@@ -453,6 +500,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     newConversation,
     selectConversation,
     deleteConversation: doDeleteConversation,
+    deleteAllConversations: doDeleteAllConversations,
+    renameConversation: doRenameConversation,
     sendMessage: sendMessageAction,
     abortStreaming,
     toggleTheme,
