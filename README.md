@@ -2,20 +2,20 @@
 
 A polished, open-source web chat client for [OpenClaw](https://github.com/openclaw/openclaw) Gateway.
 
-Think ChatGPT/Claude.ai UX, but connecting to your own OpenClaw agent.
+Think ChatGPT/Claude.ai UX, but connecting to your own OpenClaw agents.
 
 ![ChatClaw Preview](./preview.png)
 
 ## Features
 
-- 🔌 Connect to any OpenClaw Gateway via WebSocket
-- 💬 Multi-conversation support with sidebar
-- ⚡ Real-time streaming responses
-- 📝 Markdown rendering with syntax highlighting
-- 🎨 Dark/light theme (Claude.ai-inspired dark theme by default)
-- 💾 All data stored locally in IndexedDB (zero backend)
-- 📱 Responsive design (desktop + mobile)
-- 🔒 Your keys stay in your browser
+- 🤖 **Multi-Agent Support** — Auto-syncs agents from your OpenClaw config
+- 👥 **Team Chat** — Create teams of agents that reply sequentially with shared context
+- 💬 **Agent DM** — Direct message individual agents
+- ⚡ **Streaming Responses** — Real-time SSE streaming via OpenAI-compatible API
+- 📝 **Markdown Rendering** — Syntax highlighting, tables, and more
+- 🎨 **Dark Theme** — Discord-inspired dark UI
+- 💾 **Local Storage** — All data in IndexedDB, zero backend database
+- 🔌 **Auto-Bootstrap** — Reads `~/.openclaw/openclaw.json` on first launch
 
 ## Quick Start
 
@@ -25,37 +25,54 @@ git clone https://github.com/idoubi/chatclaw.git
 cd chatclaw
 
 # Install dependencies
-bun install
+pnpm install
 
 # Run dev server
-bun run dev
+pnpm dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000), enter your OpenClaw Gateway URL (`ws://host:port`) and token, and start chatting.
+Open [http://localhost:3000](http://localhost:3000) — ChatClaw auto-detects your local OpenClaw Gateway and syncs your agents.
 
-## Tech Stack
+## Prerequisites
 
-- **Next.js 16** — App Router, TypeScript
+A running [OpenClaw](https://github.com/openclaw/openclaw) Gateway with:
+
+- HTTP endpoint enabled (`gateway.http.endpoints.chatCompletions.enabled: true`)
+- Auth token configured
+
+## How It Works
+
+```
+Browser → Next.js API proxy (/api/chat) → OpenClaw Gateway (/v1/chat/completions)
+```
+
+- ChatClaw communicates with the Gateway via the OpenAI-compatible Chat Completions endpoint
+- Requests are proxied through a Next.js API route to avoid CORS issues
+- Streaming uses Server-Sent Events (SSE)
+
+## Architecture
+
+- **Next.js 16** — App Router + TypeScript
 - **Tailwind CSS** + **shadcn/ui** — UI components
 - **Dexie.js** — IndexedDB for local storage
-- **WebSocket** — OpenClaw Gateway protocol v3
-- **react-markdown** — Markdown rendering with syntax highlighting
+- **HTTP SSE** — OpenAI-compatible streaming API
 
-## OpenClaw Gateway
+## Team Chat
 
-ChatClaw connects to an [OpenClaw](https://github.com/openclaw/openclaw) Gateway instance via WebSocket. You need a running Gateway with:
+Teams let multiple agents collaborate on the same conversation:
 
-- WebSocket endpoint accessible (e.g. `ws://127.0.0.1:18789`)
-- An auth token configured
+- Agents reply **sequentially** in configured order
+- Each agent sees the **full conversation history** plus previous agents' replies from the current round
+- Useful for agent teams (e.g., code review + security audit + testing)
 
 ## Development
 
 ```bash
-bun run dev      # Start dev server
-bun run build    # Production build
-bun run lint     # Lint
+pnpm dev      # Start dev server
+pnpm build    # Production build
+pnpm lint     # Lint
 ```
 
 ## License
 
-This project is open-source and available under the [MIT License](./LICENSE).
+MIT — see [LICENSE](./LICENSE)

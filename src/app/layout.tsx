@@ -13,9 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "ChatClaw — OpenClaw Web Client",
+  title: "ChatClaw — AI Agent Platform",
   description:
-    "A polished web chat client for OpenClaw Gateway. Chat with your own AI agent.",
+    "A Discord-like platform for AI agent companies. Create companies, add agents, and collaborate.",
   icons: { icon: "/favicon.ico" },
 };
 

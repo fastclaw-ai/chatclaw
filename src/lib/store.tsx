@@ -10,138 +10,242 @@ import React, {
 } from "react";
 import { v4 as uuidv4 } from "uuid";
 import {
-  getSettings,
-  saveSettings,
-  updateTheme,
-  getAllConversations,
-  getConversation,
-  createConversation,
-  updateConversationTitle,
-  deleteConversation as dbDeleteConversation,
-  deleteAllConversations as dbDeleteAllConversations,
-  getMessages,
+  getAllCompanies,
+  createCompany as dbCreateCompany,
+  updateCompany as dbUpdateCompany,
+  deleteCompany as dbDeleteCompany,
+  getAgentsByCompany,
+  createAgent as dbCreateAgent,
+  updateAgent as dbUpdateAgent,
+  deleteAgent as dbDeleteAgent,
+  getTeamsByCompany,
+  createTeam as dbCreateTeam,
+  updateTeam as dbUpdateTeam,
+  deleteTeam as dbDeleteTeam,
+  getMessagesByTarget,
   addMessage,
 } from "@/lib/db";
-import { getGateway, resetGateway } from "@/lib/gateway";
+import { GatewayClient } from "@/lib/gateway";
 import type {
-  Settings,
-  Conversation,
+  Company,
+  Agent,
+  AgentTeam,
   Message,
   ConnectionStatus,
   AgentIdentity,
   ChatEventPayload,
   AppState,
+  AgentSpecialty,
+  ChatTarget,
+  ChatTargetType,
 } from "@/types";
+
+// ── Session Key Helpers ────────────────────────────────────────────
+
+function dmSessionKey(agentId: string): string {
+  return `agent:${agentId}:chatclaw:dm`;
+}
+
+function teamSessionKey(agentId: string, teamId: string): string {
+  return `agent:${agentId}:chatclaw:team:${teamId}`;
+}
 
 // ── Action Types ────────────────────────────────────────────────────
 
 type Action =
-  | { type: "SET_SETTINGS"; settings: Settings | null }
-  | { type: "SET_SETTINGS_LOADED" }
-  | { type: "SET_CONNECTION_STATUS"; status: ConnectionStatus }
-  | { type: "SET_AGENT_IDENTITY"; identity: AgentIdentity }
-  | { type: "SET_CONVERSATIONS"; conversations: Conversation[] }
-  | { type: "ADD_CONVERSATION"; conversation: Conversation }
-  | { type: "UPDATE_CONVERSATION_TITLE"; id: string; title: string }
-  | { type: "REMOVE_CONVERSATION"; id: string }
-  | { type: "SET_ACTIVE_CONVERSATION"; id: string | null }
+  | { type: "SET_INITIALIZED" }
+  | { type: "SET_COMPANIES"; companies: Company[] }
+  | { type: "ADD_COMPANY"; company: Company }
+  | { type: "UPDATE_COMPANY"; id: string; updates: Partial<Company> }
+  | { type: "REMOVE_COMPANY"; id: string }
+  | { type: "SET_AGENTS"; agents: Agent[] }
+  | { type: "ADD_AGENT"; agent: Agent }
+  | { type: "UPDATE_AGENT"; id: string; updates: Partial<Agent> }
+  | { type: "REMOVE_AGENT"; id: string }
+  | { type: "SET_TEAMS"; teams: AgentTeam[] }
+  | { type: "ADD_TEAM"; team: AgentTeam }
+  | { type: "UPDATE_TEAM"; id: string; updates: Partial<AgentTeam> }
+  | { type: "REMOVE_TEAM"; id: string }
+  | { type: "SET_ACTIVE_COMPANY"; id: string | null }
+  | { type: "SET_CHAT_TARGET"; target: ChatTarget | null }
   | { type: "SET_MESSAGES"; messages: Message[] }
   | { type: "ADD_MESSAGE"; message: Message }
-  | { type: "SET_DETECTED_GATEWAY"; url: string | null; token: string | null }
-  | { type: "SET_STREAMING"; isStreaming: boolean; conversationId?: string | null }
-  | { type: "SET_STREAMING_CONTENT"; content: string; runId: string | null }
-  | { type: "SET_THEME"; theme: "dark" | "light" };
+  | { type: "SET_CONNECTION_STATUS"; status: ConnectionStatus }
+  | { type: "SET_AGENT_IDENTITY"; agentId: string; identity: AgentIdentity }
+  | { type: "SET_STREAMING"; agentId: string; targetType: ChatTargetType; targetId: string; sessionKey: string; isStreaming: boolean }
+  | { type: "SET_STREAMING_CONTENT"; agentId: string; content: string; runId: string | null }
+  | { type: "CLEAR_STREAMING"; agentId: string };
 
 // ── Initial State ───────────────────────────────────────────────────
 
 const initialState: AppState = {
-  settings: null,
-  settingsLoaded: false,
-  connectionStatus: "disconnected",
-  agentIdentity: null,
-  conversations: [],
-  activeConversationId: null,
-  detectedGatewayUrl: null,
-  detectedToken: null,
+  companies: [],
+  agents: [],
+  teams: [],
   messages: [],
-  isStreaming: false,
-  streamingContent: "",
-  currentRunId: null,
-  streamingConversationId: null,
+  activeCompanyId: null,
+  activeChatTarget: null,
+  connectionStatus: "disconnected",
+  agentIdentities: {},
+  streamingStates: {},
+  initialized: false,
 };
 
 // ── Reducer ─────────────────────────────────────────────────────────
 
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
-    case "SET_SETTINGS":
-      return { ...state, settings: action.settings };
-    case "SET_SETTINGS_LOADED":
-      return { ...state, settingsLoaded: true };
-    case "SET_CONNECTION_STATUS":
-      return { ...state, connectionStatus: action.status };
-    case "SET_AGENT_IDENTITY":
-      return { ...state, agentIdentity: action.identity };
-    case "SET_CONVERSATIONS":
-      return { ...state, conversations: action.conversations };
-    case "ADD_CONVERSATION":
+    case "SET_INITIALIZED":
+      return { ...state, initialized: true };
+
+    case "SET_COMPANIES":
+      return { ...state, companies: action.companies };
+    case "ADD_COMPANY":
+      return { ...state, companies: [...state.companies, action.company] };
+    case "UPDATE_COMPANY":
       return {
         ...state,
-        conversations: [action.conversation, ...state.conversations],
-      };
-    case "UPDATE_CONVERSATION_TITLE":
-      return {
-        ...state,
-        conversations: state.conversations.map((c) =>
-          c.id === action.id ? { ...c, title: action.title } : c
+        companies: state.companies.map((c) =>
+          c.id === action.id ? { ...c, ...action.updates } : c
         ),
       };
-    case "REMOVE_CONVERSATION":
+    case "REMOVE_COMPANY": {
+      const newState = {
+        ...state,
+        companies: state.companies.filter((c) => c.id !== action.id),
+        agents: state.agents.filter((a) => a.companyId !== action.id),
+        teams: state.teams.filter((t) => t.companyId !== action.id),
+      };
+      if (state.activeCompanyId === action.id) {
+        newState.activeCompanyId = newState.companies[0]?.id ?? null;
+        newState.activeChatTarget = null;
+        newState.messages = [];
+      }
+      return newState;
+    }
+
+    case "SET_AGENTS":
+      return { ...state, agents: action.agents };
+    case "ADD_AGENT":
+      return { ...state, agents: [...state.agents, action.agent] };
+    case "UPDATE_AGENT":
       return {
         ...state,
-        conversations: state.conversations.filter((c) => c.id !== action.id),
-        activeConversationId:
-          state.activeConversationId === action.id
-            ? null
-            : state.activeConversationId,
-        messages:
-          state.activeConversationId === action.id ? [] : state.messages,
+        agents: state.agents.map((a) =>
+          a.id === action.id ? { ...a, ...action.updates } : a
+        ),
       };
-    case "SET_ACTIVE_CONVERSATION":
-      return { ...state, activeConversationId: action.id };
-    case "SET_DETECTED_GATEWAY":
-      return { ...state, detectedGatewayUrl: action.url, detectedToken: action.token };
+    case "REMOVE_AGENT":
+      return { ...state, agents: state.agents.filter((a) => a.id !== action.id) };
+
+    case "SET_TEAMS":
+      return { ...state, teams: action.teams };
+    case "ADD_TEAM":
+      return { ...state, teams: [...state.teams, action.team] };
+    case "UPDATE_TEAM":
+      return {
+        ...state,
+        teams: state.teams.map((t) =>
+          t.id === action.id ? { ...t, ...action.updates } : t
+        ),
+      };
+    case "REMOVE_TEAM":
+      return { ...state, teams: state.teams.filter((t) => t.id !== action.id) };
+
+    case "SET_ACTIVE_COMPANY":
+      return { ...state, activeCompanyId: action.id, activeChatTarget: null, messages: [] };
+    case "SET_CHAT_TARGET":
+      return { ...state, activeChatTarget: action.target };
     case "SET_MESSAGES":
       return { ...state, messages: action.messages };
     case "ADD_MESSAGE":
       return { ...state, messages: [...state.messages, action.message] };
-    case "SET_STREAMING":
+
+    case "SET_CONNECTION_STATUS":
+      return { ...state, connectionStatus: action.status };
+    case "SET_AGENT_IDENTITY":
       return {
         ...state,
-        isStreaming: action.isStreaming,
-        ...(action.isStreaming
-          ? { streamingConversationId: action.conversationId ?? state.streamingConversationId }
-          : { streamingContent: "", currentRunId: null, streamingConversationId: null }),
+        agentIdentities: { ...state.agentIdentities, [action.agentId]: action.identity },
+      };
+
+    case "SET_STREAMING":
+      if (action.isStreaming) {
+        return {
+          ...state,
+          streamingStates: {
+            ...state.streamingStates,
+            [action.agentId]: {
+              isStreaming: true,
+              content: "",
+              runId: null,
+              targetType: action.targetType,
+              targetId: action.targetId,
+              sessionKey: action.sessionKey,
+            },
+          },
+        };
+      }
+      return {
+        ...state,
+        streamingStates: Object.fromEntries(
+          Object.entries(state.streamingStates).filter(([k]) => k !== action.agentId)
+        ),
       };
     case "SET_STREAMING_CONTENT":
       return {
         ...state,
-        streamingContent: action.content,
-        currentRunId: action.runId,
+        streamingStates: {
+          ...state.streamingStates,
+          [action.agentId]: {
+            ...state.streamingStates[action.agentId],
+            content: action.content,
+            runId: action.runId,
+          },
+        },
       };
-    case "SET_THEME":
+    case "CLEAR_STREAMING":
       return {
         ...state,
-        settings: state.settings
-          ? { ...state.settings, theme: action.theme }
-          : null,
+        streamingStates: Object.fromEntries(
+          Object.entries(state.streamingStates).filter(([k]) => k !== action.agentId)
+        ),
       };
+
     default:
       return state;
   }
 }
 
 // ── Context ─────────────────────────────────────────────────────────
+
+interface StoreActions {
+  createCompany: (name: string, gatewayUrl: string, gatewayToken: string, description?: string) => Promise<Company>;
+  updateCompany: (id: string, updates: Partial<Company>) => Promise<void>;
+  deleteCompany: (id: string) => Promise<void>;
+  selectCompany: (id: string) => Promise<void>;
+
+  createAgent: (opts: {
+    companyId: string;
+    name: string;
+    description: string;
+    specialty: AgentSpecialty;
+  }) => Promise<Agent>;
+  updateAgent: (id: string, updates: Partial<Agent>) => Promise<void>;
+  deleteAgent: (id: string) => Promise<void>;
+
+  createTeam: (opts: { companyId: string; name: string; description?: string; agentIds: string[] }) => Promise<AgentTeam>;
+  updateTeam: (id: string, updates: Partial<AgentTeam>) => Promise<void>;
+  deleteTeam: (id: string) => Promise<void>;
+
+  selectChatTarget: (target: ChatTarget) => Promise<void>;
+  sendMessage: (content: string) => Promise<void>;
+  abortStreaming: (agentId: string) => Promise<void>;
+
+  connectGateway: () => void;
+  disconnectGateway: () => void;
+  restartGateway: () => Promise<void>;
+}
 
 interface StoreContextValue {
   state: AppState;
@@ -151,251 +255,318 @@ interface StoreContextValue {
 
 const StoreContext = createContext<StoreContextValue | null>(null);
 
-// ── Actions ─────────────────────────────────────────────────────────
-
-interface StoreActions {
-  loadSettings: () => Promise<void>;
-  saveAndConnect: (url: string, token: string) => Promise<void>;
-  connectGateway: () => void;
-  disconnectGateway: () => void;
-  loadConversations: () => Promise<void>;
-  newConversation: () => Promise<string>;
-  selectConversation: (id: string) => Promise<void>;
-  deleteConversation: (id: string) => Promise<void>;
-  deleteAllConversations: () => Promise<void>;
-  renameConversation: (id: string, title: string) => Promise<void>;
-  sendMessage: (content: string, convId?: string) => Promise<void>;
-  abortStreaming: () => Promise<void>;
-  toggleTheme: () => Promise<void>;
-}
-
 // ── Provider ────────────────────────────────────────────────────────
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState);
   const stateRef = useRef(state);
   stateRef.current = state;
+  const gatewayRef = useRef<GatewayClient | null>(null);
+  const pendingStreamResolvers = useRef<Map<string, () => void>>(new Map());
 
-  // Track accumulated text for delta computation
-  const lastTextRef = useRef("");
+  // ── Resolve agentId from sessionKey ───────────────────────────
 
-  // ── Gateway event handlers ──────────────────────────────────────
-
-  const handleConnectionStatus = useCallback(
-    (status: ConnectionStatus) => {
-      dispatch({ type: "SET_CONNECTION_STATUS", status });
-    },
-    []
-  );
-
-  const handleChatEvent = useCallback(
-    (payload: ChatEventPayload) => {
-      const current = stateRef.current;
-      const text =
-        payload.message?.content?.[0]?.text ?? "";
-
-      switch (payload.state) {
-        case "delta": {
-          dispatch({
-            type: "SET_STREAMING_CONTENT",
-            content: text,
-            runId: payload.runId,
-          });
-          break;
-        }
-        case "final": {
-          const finalText = text || current.streamingContent;
-          if (finalText && current.activeConversationId) {
-            const msg: Message = {
-              id: uuidv4(),
-              conversationId: current.activeConversationId!,
-              role: "assistant",
-              content: finalText,
-              createdAt: payload.message?.timestamp ?? Date.now(),
-            };
-            addMessage(msg).then(() => {
-              dispatch({ type: "ADD_MESSAGE", message: msg });
-            });
-          }
-          dispatch({ type: "SET_STREAMING", isStreaming: false });
-          lastTextRef.current = "";
-          break;
-        }
-        case "error": {
-          const errText =
-            payload.error || text || "An error occurred";
-          if (current.activeConversationId) {
-            const msg: Message = {
-              id: uuidv4(),
-              conversationId: current.activeConversationId!,
-              role: "assistant",
-              content: `Error: ${errText}`,
-              createdAt: Date.now(),
-            };
-            addMessage(msg).then(() => {
-              dispatch({ type: "ADD_MESSAGE", message: msg });
-            });
-          }
-          dispatch({ type: "SET_STREAMING", isStreaming: false });
-          lastTextRef.current = "";
-          break;
-        }
-        case "aborted": {
-          // Save whatever we had
-          const abortedText = current.streamingContent;
-          if (abortedText && current.activeConversationId) {
-            const msg: Message = {
-              id: uuidv4(),
-              conversationId: current.activeConversationId!,
-              role: "assistant",
-              content: abortedText,
-              createdAt: Date.now(),
-            };
-            addMessage(msg).then(() => {
-              dispatch({ type: "ADD_MESSAGE", message: msg });
-            });
-          }
-          dispatch({ type: "SET_STREAMING", isStreaming: false });
-          lastTextRef.current = "";
-          break;
-        }
-      }
-    },
-    []
-  );
-
-  const handleAgentIdentity = useCallback(
-    (identity: AgentIdentity) => {
-      dispatch({ type: "SET_AGENT_IDENTITY", identity });
-    },
-    []
-  );
-
-  const handleError = useCallback(
-    (_error: string) => {
-      // Could display toast notification
-    },
-    []
-  );
-
-  // ── Actions ─────────────────────────────────────────────────────
-
-  const loadSettings = useCallback(async () => {
-    const settings = await getSettings();
-    dispatch({ type: "SET_SETTINGS", settings });
-    dispatch({ type: "SET_SETTINGS_LOADED" });
+  const resolveAgentFromSession = useCallback((sessionKey: string): string | null => {
+    const match = sessionKey.match(/^agent:([^:]+):/);
+    return match ? match[1] : null;
   }, []);
 
-  const connectGateway = useCallback(() => {
-    const s = stateRef.current.settings;
-    if (!s?.gatewayUrl || !s?.token) return;
+  // ── Gateway connection ───────────────────────────────────────
 
-    const gw = getGateway();
-    gw.configure(s.gatewayUrl, s.token, {
-      onConnectionStatus: handleConnectionStatus,
-      onChatEvent: handleChatEvent,
-      onAgentIdentity: handleAgentIdentity,
-      onError: handleError,
+  const connectGateway = useCallback(() => {
+    const current = stateRef.current;
+    const company = current.companies.find((c) => c.id === current.activeCompanyId);
+    if (!company?.gatewayUrl || !company?.gatewayToken) return;
+
+    if (gatewayRef.current) {
+      gatewayRef.current.destroy();
+    }
+
+    const client = new GatewayClient();
+    gatewayRef.current = client;
+
+    client.configure(company.gatewayUrl, company.gatewayToken, {
+      onConnectionStatus: (status: ConnectionStatus) => {
+        dispatch({ type: "SET_CONNECTION_STATUS", status });
+      },
+      onChatEvent: (payload: ChatEventPayload) => {
+        const agentId = resolveAgentFromSession(payload.sessionKey);
+        if (!agentId) return;
+
+        const current = stateRef.current;
+        const streaming = current.streamingStates[agentId];
+        const text = payload.message?.content?.[0]?.text ?? "";
+
+        switch (payload.state) {
+          case "delta": {
+            dispatch({
+              type: "SET_STREAMING_CONTENT",
+              agentId,
+              content: text,
+              runId: payload.runId,
+            });
+            break;
+          }
+          case "final": {
+            const finalText = text || streaming?.content || "";
+            if (finalText && streaming) {
+              const msg: Message = {
+                id: uuidv4(),
+                targetType: streaming.targetType,
+                targetId: streaming.targetId,
+                role: "assistant",
+                agentId,
+                content: finalText,
+                createdAt: payload.message?.timestamp ?? Date.now(),
+              };
+              addMessage(msg).then(() => {
+                const s = stateRef.current;
+                if (s.activeChatTarget?.type === streaming.targetType && s.activeChatTarget?.id === streaming.targetId) {
+                  dispatch({ type: "ADD_MESSAGE", message: msg });
+                }
+              });
+            }
+            dispatch({ type: "SET_STREAMING", agentId, targetType: streaming?.targetType ?? "agent", targetId: streaming?.targetId ?? "", sessionKey: "", isStreaming: false });
+            const finalResolver = pendingStreamResolvers.current.get(agentId);
+            if (finalResolver) {
+              pendingStreamResolvers.current.delete(agentId);
+              finalResolver();
+            }
+            break;
+          }
+          case "error": {
+            const errText = payload.error || text || "An error occurred";
+            if (streaming) {
+              const msg: Message = {
+                id: uuidv4(),
+                targetType: streaming.targetType,
+                targetId: streaming.targetId,
+                role: "assistant",
+                agentId,
+                content: `Error: ${errText}`,
+                createdAt: Date.now(),
+              };
+              addMessage(msg).then(() => {
+                const s = stateRef.current;
+                if (s.activeChatTarget?.type === streaming.targetType && s.activeChatTarget?.id === streaming.targetId) {
+                  dispatch({ type: "ADD_MESSAGE", message: msg });
+                }
+              });
+            }
+            dispatch({ type: "SET_STREAMING", agentId, targetType: streaming?.targetType ?? "agent", targetId: streaming?.targetId ?? "", sessionKey: "", isStreaming: false });
+            const errorResolver = pendingStreamResolvers.current.get(agentId);
+            if (errorResolver) {
+              pendingStreamResolvers.current.delete(agentId);
+              errorResolver();
+            }
+            break;
+          }
+          case "aborted": {
+            const abortedText = streaming?.content;
+            if (abortedText && streaming) {
+              const msg: Message = {
+                id: uuidv4(),
+                targetType: streaming.targetType,
+                targetId: streaming.targetId,
+                role: "assistant",
+                agentId,
+                content: abortedText,
+                createdAt: Date.now(),
+              };
+              addMessage(msg).then(() => {
+                const s = stateRef.current;
+                if (s.activeChatTarget?.type === streaming.targetType && s.activeChatTarget?.id === streaming.targetId) {
+                  dispatch({ type: "ADD_MESSAGE", message: msg });
+                }
+              });
+            }
+            dispatch({ type: "SET_STREAMING", agentId, targetType: streaming?.targetType ?? "agent", targetId: streaming?.targetId ?? "", sessionKey: "", isStreaming: false });
+            const abortedResolver = pendingStreamResolvers.current.get(agentId);
+            if (abortedResolver) {
+              pendingStreamResolvers.current.delete(agentId);
+              abortedResolver();
+            }
+            break;
+          }
+        }
+      },
+      onError: () => {},
     });
-    gw.connect();
-  }, [handleConnectionStatus, handleChatEvent, handleAgentIdentity, handleError]);
+
+    client.connect();
+  }, [resolveAgentFromSession]);
 
   const disconnectGateway = useCallback(() => {
-    resetGateway();
+    if (gatewayRef.current) {
+      gatewayRef.current.destroy();
+      gatewayRef.current = null;
+    }
     dispatch({ type: "SET_CONNECTION_STATUS", status: "disconnected" });
   }, []);
 
-  const saveAndConnect = useCallback(
-    async (url: string, token: string) => {
-      const theme = stateRef.current.settings?.theme ?? "dark";
-      const settings = await saveSettings(url, token, theme);
-      dispatch({ type: "SET_SETTINGS", settings });
-      // Reconnect with new settings
-      resetGateway();
-      const gw = getGateway();
-      gw.configure(url, token, {
-        onConnectionStatus: handleConnectionStatus,
-        onChatEvent: handleChatEvent,
-        onAgentIdentity: handleAgentIdentity,
-        onError: handleError,
-      });
-      gw.connect();
-    },
-    [handleConnectionStatus, handleChatEvent, handleAgentIdentity, handleError]
-  );
+  // ── Actions ───────────────────────────────────────────────────────
 
-  const loadConversations = useCallback(async () => {
-    const conversations = await getAllConversations();
-    dispatch({ type: "SET_CONVERSATIONS", conversations });
+  const createCompanyAction = useCallback(async (name: string, gatewayUrl: string, gatewayToken: string, description?: string) => {
+    const now = Date.now();
+    const company: Company = {
+      id: uuidv4(),
+      name,
+      description,
+      gatewayUrl,
+      gatewayToken,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await dbCreateCompany(company);
+    dispatch({ type: "ADD_COMPANY", company });
+    return company;
   }, []);
 
-  const newConversation = useCallback(async () => {
-    // If current conversation is empty (no messages), just stay on it
-    const current = stateRef.current;
-    if (current.activeConversationId) {
-      const activeConv = current.conversations.find(c => c.id === current.activeConversationId);
-      if (activeConv && activeConv.title === "New Chat" && current.messages.length === 0) {
-        return current.activeConversationId;
+  const updateCompanyAction = useCallback(async (id: string, updates: Partial<Company>) => {
+    await dbUpdateCompany(id, updates);
+    dispatch({ type: "UPDATE_COMPANY", id, updates });
+
+    if (updates.gatewayUrl || updates.gatewayToken) {
+      const current = stateRef.current;
+      if (current.activeCompanyId === id) {
+        setTimeout(() => connectGateway(), 100);
       }
     }
+  }, [connectGateway]);
 
-    const id = uuidv4();
-    const sessionKey = uuidv4();
-    const conv = await createConversation(id, sessionKey, "New Chat");
-    dispatch({ type: "ADD_CONVERSATION", conversation: conv });
-    dispatch({ type: "SET_ACTIVE_CONVERSATION", id });
-    dispatch({ type: "SET_MESSAGES", messages: [] });
-    return id;
+  const deleteCompanyAction = useCallback(async (id: string) => {
+    const current = stateRef.current;
+    if (current.activeCompanyId === id) {
+      disconnectGateway();
+    }
+    await dbDeleteCompany(id);
+    dispatch({ type: "REMOVE_COMPANY", id });
+  }, [disconnectGateway]);
+
+  const selectCompanyAction = useCallback(async (id: string) => {
+    disconnectGateway();
+    dispatch({ type: "SET_ACTIVE_COMPANY", id });
+
+    const [agents, teams] = await Promise.all([
+      getAgentsByCompany(id),
+      getTeamsByCompany(id),
+    ]);
+    dispatch({ type: "SET_AGENTS", agents });
+    dispatch({ type: "SET_TEAMS", teams });
+
+    setTimeout(() => connectGateway(), 50);
+  }, [disconnectGateway, connectGateway]);
+
+  const createAgentAction = useCallback(async (opts: {
+    companyId: string;
+    name: string;
+    description: string;
+    specialty: AgentSpecialty;
+  }) => {
+    const agent: Agent = {
+      id: uuidv4(),
+      companyId: opts.companyId,
+      name: opts.name,
+      description: opts.description,
+      specialty: opts.specialty,
+      createdAt: Date.now(),
+    };
+
+    await dbCreateAgent(agent);
+    dispatch({ type: "ADD_AGENT", agent });
+
+    try {
+      await fetch("/api/agents/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          agentId: agent.id,
+          name: agent.name,
+          description: agent.description,
+          specialty: agent.specialty,
+        }),
+      });
+    } catch {
+      // Non-critical
+    }
+
+    return agent;
   }, []);
 
-  const selectConversation = useCallback(async (id: string) => {
-    dispatch({ type: "SET_ACTIVE_CONVERSATION", id });
-    const msgs = await getMessages(id);
+  const updateAgentAction = useCallback(async (id: string, updates: Partial<Agent>) => {
+    await dbUpdateAgent(id, updates);
+    dispatch({ type: "UPDATE_AGENT", id, updates });
+  }, []);
+
+  const deleteAgentAction = useCallback(async (id: string) => {
+    await dbDeleteAgent(id);
+    dispatch({ type: "REMOVE_AGENT", id });
+
+    try {
+      await fetch("/api/agents/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agentId: id }),
+      });
+    } catch {
+      // Non-critical
+    }
+
+    // Clear chat if this was the active target
+    const current = stateRef.current;
+    if (current.activeChatTarget?.type === "agent" && current.activeChatTarget?.id === id) {
+      dispatch({ type: "SET_CHAT_TARGET", target: null });
+      dispatch({ type: "SET_MESSAGES", messages: [] });
+    }
+  }, []);
+
+  const createTeamAction = useCallback(async (opts: { companyId: string; name: string; description?: string; agentIds: string[] }) => {
+    const team: AgentTeam = {
+      id: uuidv4(),
+      companyId: opts.companyId,
+      name: opts.name,
+      description: opts.description,
+      agentIds: opts.agentIds,
+      createdAt: Date.now(),
+    };
+    await dbCreateTeam(team);
+    dispatch({ type: "ADD_TEAM", team });
+    return team;
+  }, []);
+
+  const updateTeamAction = useCallback(async (id: string, updates: Partial<AgentTeam>) => {
+    await dbUpdateTeam(id, updates);
+    dispatch({ type: "UPDATE_TEAM", id, updates });
+  }, []);
+
+  const deleteTeamAction = useCallback(async (id: string) => {
+    await dbDeleteTeam(id);
+    dispatch({ type: "REMOVE_TEAM", id });
+    const current = stateRef.current;
+    if (current.activeChatTarget?.type === "team" && current.activeChatTarget?.id === id) {
+      dispatch({ type: "SET_CHAT_TARGET", target: null });
+      dispatch({ type: "SET_MESSAGES", messages: [] });
+    }
+  }, []);
+
+  const selectChatTargetAction = useCallback(async (target: ChatTarget) => {
+    dispatch({ type: "SET_CHAT_TARGET", target });
+    const msgs = await getMessagesByTarget(target.type, target.id);
     dispatch({ type: "SET_MESSAGES", messages: msgs });
   }, []);
 
-  const doDeleteConversation = useCallback(async (id: string) => {
-    await dbDeleteConversation(id);
-    dispatch({ type: "REMOVE_CONVERSATION", id });
-  }, []);
-
-  const doRenameConversation = useCallback(async (id: string, title: string) => {
-    await updateConversationTitle(id, title);
-    dispatch({ type: "UPDATE_CONVERSATION_TITLE", id, title });
-  }, []);
-
-  const doDeleteAllConversations = useCallback(async () => {
-    await dbDeleteAllConversations();
-    dispatch({ type: "SET_CONVERSATIONS", conversations: [] });
-    dispatch({ type: "SET_ACTIVE_CONVERSATION", id: null });
-    dispatch({ type: "SET_MESSAGES", messages: [] });
-  }, []);
-
-  const sendMessageAction = useCallback(async (content: string, convId?: string) => {
+  const sendMessageAction = useCallback(async (content: string) => {
     const current = stateRef.current;
-    let activeId = convId || current.activeConversationId;
+    const target = current.activeChatTarget;
+    if (!target) return;
 
-    // Create a new conversation if needed
-    if (!activeId) {
-      activeId = await newConversation();
-    }
+    const client = gatewayRef.current;
+    if (!client || !client.isConnected()) return;
 
-    // Only block sending if this conversation is already streaming
-    if (current.isStreaming && current.streamingConversationId === activeId) return;
-
-    // Try state first, fall back to DB (state may not have re-rendered yet)
-    let conv = stateRef.current.conversations.find(
-      (c) => c.id === activeId
-    );
-    if (!conv) {
-      conv = await getConversation(activeId!);
-    }
-    if (!conv) return;
-
-    // Add user message to DB and state
     const userMsg: Message = {
       id: uuidv4(),
-      conversationId: activeId!,
+      targetType: target.type,
+      targetId: target.id,
       role: "user",
       content,
       createdAt: Date.now(),
@@ -403,108 +574,217 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     await addMessage(userMsg);
     dispatch({ type: "ADD_MESSAGE", message: userMsg });
 
-    // Auto-title from first message
-    if (conv.title === "New Chat") {
-      const title = content.slice(0, 50) + (content.length > 50 ? "..." : "");
-      await updateConversationTitle(conv.id, title);
+    if (target.type === "agent") {
+      const sessionKey = dmSessionKey(target.id);
       dispatch({
-        type: "UPDATE_CONVERSATION_TITLE",
-        id: conv.id,
-        title,
+        type: "SET_STREAMING",
+        agentId: target.id,
+        targetType: "agent",
+        targetId: target.id,
+        sessionKey,
+        isStreaming: true,
       });
-    }
+      try {
+        await client.sendMessage(sessionKey, content);
+      } catch {
+        dispatch({ type: "SET_STREAMING", agentId: target.id, targetType: "agent", targetId: target.id, sessionKey, isStreaming: false });
+      }
+    } else {
+      const team = current.teams.find((t) => t.id === target.id);
+      if (!team) return;
 
-    // Start streaming
-    dispatch({ type: "SET_STREAMING", isStreaming: true, conversationId: activeId });
-    lastTextRef.current = "";
+      const STREAM_TIMEOUT = 5 * 60 * 1000; // 5 minutes
 
-    // Send via gateway
-    const gw = getGateway();
-    try {
-      await gw.sendMessage(conv.sessionKey, content);
-    } catch {
-      dispatch({ type: "SET_STREAMING", isStreaming: false });
+      // Build full team conversation history from existing messages
+      const teamHistory = current.messages
+        .filter(m => m.targetType === "team" && m.targetId === target.id)
+        .map(m => {
+          if (m.role === "user") return `[User]: ${m.content}`;
+          const agent = current.agents.find(a => a.id === m.agentId);
+          return `[${agent?.name || m.agentId || "Assistant"}]: ${m.content}`;
+        })
+        .join("\n\n");
+
+      let currentRoundReplies: Array<{ agentName: string; content: string }> = [];
+
+      for (const agentId of team.agentIds) {
+        const sessionKey = teamSessionKey(agentId, target.id);
+        dispatch({
+          type: "SET_STREAMING",
+          agentId,
+          targetType: "team",
+          targetId: target.id,
+          sessionKey,
+          isStreaming: true,
+        });
+        try {
+          // Build full context: history + current round replies + new message
+          let messageToSend = content;
+          const contextParts: string[] = [];
+
+          if (teamHistory) {
+            contextParts.push(`[Team conversation history]\n${teamHistory}`);
+          }
+
+          if (currentRoundReplies.length > 0) {
+            const roundContext = currentRoundReplies
+              .map(r => `[${r.agentName}]: ${r.content}`)
+              .join("\n\n");
+            contextParts.push(`[Current round replies]\n${roundContext}`);
+          }
+
+          if (contextParts.length > 0) {
+            messageToSend = `${contextParts.join("\n\n")}\n\n[New user message]\n${content}`;
+          }
+
+          await client.sendMessage(sessionKey, messageToSend);
+
+          // Wait for this agent's streaming to complete before sending to the next
+          await Promise.race([
+            new Promise<void>((resolve) => {
+              pendingStreamResolvers.current.set(agentId, resolve);
+            }),
+            new Promise<void>((resolve) => setTimeout(() => {
+              pendingStreamResolvers.current.delete(agentId);
+              resolve();
+            }, STREAM_TIMEOUT)),
+          ]);
+
+          // Collect this agent's reply for the next agent's context in this round
+          const latestState = stateRef.current;
+          const agentReply = [...latestState.messages].reverse().find(
+            (m) => m.role === "assistant" && m.agentId === agentId && m.targetId === target.id
+          );
+          if (agentReply) {
+            const agent = latestState.agents.find((a) => a.id === agentId);
+            currentRoundReplies.push({ agentName: agent?.name || agentId, content: agentReply.content });
+          }
+        } catch {
+          dispatch({ type: "SET_STREAMING", agentId, targetType: "team", targetId: target.id, sessionKey, isStreaming: false });
+        }
+      }
     }
   }, []);
 
-  const abortStreaming = useCallback(async () => {
+  const abortStreamingAction = useCallback(async (agentId: string) => {
     const current = stateRef.current;
-    if (!current.isStreaming || !current.activeConversationId) return;
+    const streaming = current.streamingStates[agentId];
+    if (!streaming) return;
 
-    const conv = current.conversations.find(
-      (c) => c.id === current.activeConversationId
-    );
-    if (!conv) return;
+    const client = gatewayRef.current;
+    if (client) {
+      try {
+        await client.abortChat(streaming.sessionKey, streaming.runId ?? undefined);
+      } catch {
+        dispatch({ type: "CLEAR_STREAMING", agentId });
+      }
+    }
+  }, []);
 
-    const gw = getGateway();
+  const restartGatewayAction = useCallback(async () => {
     try {
-      await gw.abortChat(conv.sessionKey, current.currentRunId ?? undefined);
+      await fetch("/api/gateway/restart", { method: "POST" });
+      disconnectGateway();
+      setTimeout(() => connectGateway(), 2000);
     } catch {
-      // Force stop UI anyway
-      dispatch({ type: "SET_STREAMING", isStreaming: false });
+      // Failed to restart
     }
-  }, []);
-
-  const toggleTheme = useCallback(async () => {
-    const current = stateRef.current;
-    const newTheme = current.settings?.theme === "light" ? "dark" : "light";
-    if (current.settings) {
-      await updateTheme(newTheme);
-      dispatch({ type: "SET_THEME", theme: newTheme });
-    }
-  }, []);
+  }, [disconnectGateway, connectGateway]);
 
   // ── Init ────────────────────────────────────────────────────────
 
   useEffect(() => {
-    loadSettings().then(async () => {
-      loadConversations();
-      // If no saved settings, try to detect local OpenClaw config
-      const s = stateRef.current.settings;
-      if (!s?.gatewayUrl) {
+    async function init() {
+      const companies = await getAllCompanies();
+
+      if (companies.length === 0) {
+        // Bootstrap from OpenClaw config
         try {
-          const res = await fetch("/api/detect-gateway");
+          const res = await fetch("/api/bootstrap");
           const data = await res.json();
           if (data.found) {
-            dispatch({ type: "SET_DETECTED_GATEWAY", url: data.url, token: data.token });
+            const companyId = uuidv4();
+            const company: Company = {
+              id: companyId,
+              name: "OpenClaw",
+              description: "Auto-configured from OpenClaw Gateway",
+              gatewayUrl: data.gateway.url,
+              gatewayToken: data.gateway.token,
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+            };
+            await dbCreateCompany(company);
+            dispatch({ type: "ADD_COMPANY", company });
+            dispatch({ type: "SET_ACTIVE_COMPANY", id: companyId });
+
+            for (const agentConfig of data.agents) {
+              const agent: Agent = {
+                id: agentConfig.id,
+                companyId,
+                name: agentConfig.name,
+                description: `OpenClaw agent: ${agentConfig.name}`,
+                specialty: "general" as AgentSpecialty,
+                createdAt: Date.now(),
+              };
+              await dbCreateAgent(agent);
+              dispatch({ type: "ADD_AGENT", agent });
+            }
           }
-        } catch { /* ignore */ }
+        } catch {
+          // Bootstrap failed, user can configure manually
+        }
+      } else {
+        dispatch({ type: "SET_COMPANIES", companies });
+        const firstId = companies[0].id;
+        dispatch({ type: "SET_ACTIVE_COMPANY", id: firstId });
+
+        const [agents, teams] = await Promise.all([
+          getAgentsByCompany(firstId),
+          getTeamsByCompany(firstId),
+        ]);
+        dispatch({ type: "SET_AGENTS", agents });
+        dispatch({ type: "SET_TEAMS", teams });
       }
-    });
+
+      dispatch({ type: "SET_INITIALIZED" });
+    }
+
+    init();
+
     return () => {
-      resetGateway();
+      if (gatewayRef.current) {
+        gatewayRef.current.destroy();
+        gatewayRef.current = null;
+      }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Auto-connect when settings are loaded
+  // Connect gateway when company/config changes
   useEffect(() => {
-    if (state.settingsLoaded && state.settings?.gatewayUrl && state.settings?.token) {
+    if (!state.initialized) return;
+    const company = state.companies.find((c) => c.id === state.activeCompanyId);
+    if (company?.gatewayUrl && company?.gatewayToken) {
       connectGateway();
     }
-  }, [state.settingsLoaded, state.settings?.gatewayUrl, state.settings?.token, connectGateway]);
-
-  // Theme class on html
-  useEffect(() => {
-    const theme = state.settings?.theme ?? "dark";
-    document.documentElement.classList.toggle("dark", theme === "dark");
-    document.documentElement.classList.toggle("light", theme === "light");
-  }, [state.settings?.theme]);
+  }, [state.initialized, state.activeCompanyId, connectGateway]);
 
   const actions: StoreActions = {
-    loadSettings,
-    saveAndConnect,
+    createCompany: createCompanyAction,
+    updateCompany: updateCompanyAction,
+    deleteCompany: deleteCompanyAction,
+    selectCompany: selectCompanyAction,
+    createAgent: createAgentAction,
+    updateAgent: updateAgentAction,
+    deleteAgent: deleteAgentAction,
+    createTeam: createTeamAction,
+    updateTeam: updateTeamAction,
+    deleteTeam: deleteTeamAction,
+    selectChatTarget: selectChatTargetAction,
+    sendMessage: sendMessageAction,
+    abortStreaming: abortStreamingAction,
     connectGateway,
     disconnectGateway,
-    loadConversations,
-    newConversation,
-    selectConversation,
-    deleteConversation: doDeleteConversation,
-    deleteAllConversations: doDeleteAllConversations,
-    renameConversation: doRenameConversation,
-    sendMessage: sendMessageAction,
-    abortStreaming,
-    toggleTheme,
+    restartGateway: restartGatewayAction,
   };
 
   return (

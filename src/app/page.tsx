@@ -1,12 +1,18 @@
 "use client";
 
 import { StoreProvider } from "@/lib/store";
-import { ChatLayout } from "@/components/chat-layout";
+import { CompanySidebar } from "@/components/company-sidebar";
+import { NavigationPanel } from "@/components/navigation-panel";
+import { ChatArea } from "@/components/chat-area";
 
 export default function Home() {
   return (
     <StoreProvider>
-      <ChatLayout />
+      <div className="flex h-screen w-screen overflow-hidden">
+        <CompanySidebar />
+        <NavigationPanel />
+        <ChatArea />
+      </div>
     </StoreProvider>
   );
 }

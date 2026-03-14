@@ -1,322 +1,206 @@
 import { v4 as uuidv4 } from "uuid";
 import type {
-  GatewayFrame,
-  GatewayResponse,
-  GatewayEvent,
   ChatEventPayload,
   ConnectionStatus,
-  AgentIdentity,
 } from "@/types";
 
 // ── Types ───────────────────────────────────────────────────────────
 
-type PendingRequest = {
-  resolve: (res: GatewayResponse) => void;
-  reject: (err: Error) => void;
-  timer: ReturnType<typeof setTimeout>;
-};
-
 export type GatewayEventHandler = {
   onConnectionStatus?: (status: ConnectionStatus) => void;
   onChatEvent?: (payload: ChatEventPayload) => void;
-  onAgentIdentity?: (identity: AgentIdentity) => void;
   onError?: (error: string) => void;
 };
 
-// ── Constants ───────────────────────────────────────────────────────
-
-const REQUEST_TIMEOUT = 30_000;
-const RECONNECT_BASE = 1_000;
-const RECONNECT_MAX = 16_000;
-
-// ── Gateway Client ──────────────────────────────────────────────────
+// ── Gateway Client (HTTP SSE) ──────────────────────────────────────
 
 export class GatewayClient {
-  private ws: WebSocket | null = null;
-  private url: string = "";
+  private baseUrl: string = "";
   private token: string = "";
   private handlers: GatewayEventHandler = {};
-  private pending = new Map<string, PendingRequest>();
-  private reconnectAttempts = 0;
-  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private destroyed = false;
   private connected = false;
-  private challengeReceived = false;
-
-  // ── Lifecycle ───────────────────────────────────────────────────
+  private activeAbortControllers = new Map<string, AbortController>();
 
   configure(url: string, token: string, handlers: GatewayEventHandler): void {
-    this.url = url;
+    this.baseUrl = url.replace(/^ws:\/\//, "http://").replace(/^wss:\/\//, "https://");
     this.token = token;
     this.handlers = handlers;
   }
 
   connect(): void {
     if (this.destroyed) return;
-    if (this.ws) this.cleanup();
-
-    this.connected = false;
-    this.challengeReceived = false;
-    this.handlers.onConnectionStatus?.("connecting");
-
-    try {
-      this.ws = new WebSocket(this.url);
-    } catch {
-      this.handlers.onConnectionStatus?.("error");
-      this.scheduleReconnect();
-      return;
-    }
-
-    this.ws.onopen = () => {
-      // Wait for challenge event — don't set connected yet
-    };
-
-    this.ws.onmessage = (event) => {
-      this.handleMessage(event.data as string);
-    };
-
-    this.ws.onerror = () => {
-      if (!this.connected) {
-        this.handlers.onConnectionStatus?.("error");
-      }
-    };
-
-    this.ws.onclose = () => {
-      const wasConnected = this.connected;
-      this.connected = false;
-      this.rejectAllPending("Connection closed");
-      if (!this.destroyed) {
-        this.handlers.onConnectionStatus?.(wasConnected ? "disconnected" : "error");
-        this.scheduleReconnect();
-      }
-    };
+    this.connected = true;
+    this.handlers.onConnectionStatus?.("connected");
   }
 
   disconnect(): void {
-    this.cancelReconnect();
-    this.cleanup();
+    for (const controller of this.activeAbortControllers.values()) {
+      controller.abort();
+    }
+    this.activeAbortControllers.clear();
+    this.connected = false;
     this.handlers.onConnectionStatus?.("disconnected");
   }
 
   destroy(): void {
     this.destroyed = true;
     this.disconnect();
-    this.pending.clear();
   }
 
   isConnected(): boolean {
-    return this.connected;
+    return this.connected && !this.destroyed;
   }
 
-  // ── Message Handling ──────────────────────────────────────────
+  async sendMessage(sessionKey: string, message: string): Promise<void> {
+    const agentId = this.extractAgentId(sessionKey);
+    const abortController = new AbortController();
+    this.activeAbortControllers.set(sessionKey, abortController);
 
-  private handleMessage(raw: string): void {
-    let frame: GatewayFrame;
-    try {
-      frame = JSON.parse(raw) as GatewayFrame;
-    } catch {
-      return;
-    }
-
-    switch (frame.type) {
-      case "event":
-        this.handleEvent(frame as GatewayEvent);
-        break;
-      case "res":
-        this.handleResponse(frame as GatewayResponse);
-        break;
-    }
-  }
-
-  private handleEvent(event: GatewayEvent): void {
-    switch (event.event) {
-      case "connect.challenge":
-        this.handleChallenge();
-        break;
-      case "chat":
-        this.handlers.onChatEvent?.(event.payload as unknown as ChatEventPayload);
-        break;
-    }
-  }
-
-  private async handleChallenge(): Promise<void> {
-    if (this.challengeReceived) return;
-    this.challengeReceived = true;
+    const runId = uuidv4();
 
     try {
-      const res = await this.sendRequest("connect", {
-        minProtocol: 3,
-        maxProtocol: 3,
-        client: {
-          id: "webchat",
-          version: "1.0.0",
-          platform: "web",
-          mode: "webchat",
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-gateway-url": this.baseUrl,
+          "x-gateway-token": this.token,
+          "x-openclaw-agent-id": agentId,
+          "x-openclaw-session-key": sessionKey,
         },
-        role: "operator",
-        scopes: ["operator.read", "operator.write", "operator.admin"],
-        caps: [],
-        commands: [],
-        permissions: {},
-        auth: { token: this.token },
-        locale: "en-US",
-        userAgent: "chatclaw-web/1.0.0",
+        body: JSON.stringify({
+          model: `openclaw:${agentId}`,
+          messages: [{ role: "user", content: message }],
+          stream: true,
+        }),
+        signal: abortController.signal,
       });
 
-      if (res.ok) {
-        this.connected = true;
-        this.reconnectAttempts = 0;
-        this.handlers.onConnectionStatus?.("connected");
-
-        // Fetch agent identity after connect
-        this.fetchAgentIdentity();
-      } else {
-        this.handlers.onConnectionStatus?.("error");
-        this.handlers.onError?.(
-          res.error?.message ?? "Connection rejected"
-        );
-      }
-    } catch {
-      this.handlers.onConnectionStatus?.("error");
-      this.scheduleReconnect();
-    }
-  }
-
-  private handleResponse(res: GatewayResponse): void {
-    const pending = this.pending.get(res.id);
-    if (!pending) return;
-
-    clearTimeout(pending.timer);
-    this.pending.delete(res.id);
-    pending.resolve(res);
-  }
-
-  // ── Request/Response ──────────────────────────────────────────
-
-  sendRequest(
-    method: string,
-    params: Record<string, unknown>
-  ): Promise<GatewayResponse> {
-    return new Promise((resolve, reject) => {
-      if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-        reject(new Error("WebSocket not open"));
+      if (!res.ok) {
+        const errorText = await res.text();
+        this.handlers.onChatEvent?.({
+          runId,
+          sessionKey,
+          state: "error",
+          message: { role: "assistant", content: [{ type: "text", text: "" }], timestamp: Date.now() },
+          error: `HTTP ${res.status}: ${errorText}`,
+        });
         return;
       }
 
-      const id = uuidv4();
-      const timer = setTimeout(() => {
-        this.pending.delete(id);
-        reject(new Error(`Request ${method} timed out`));
-      }, REQUEST_TIMEOUT);
+      const reader = res.body?.getReader();
+      if (!reader) return;
 
-      this.pending.set(id, { resolve, reject, timer });
+      const decoder = new TextDecoder();
+      let accumulated = "";
+      let buffer = "";
 
-      this.ws.send(
-        JSON.stringify({
-          type: "req",
-          id,
-          method,
-          params,
-        })
-      );
-    });
-  }
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-  // ── Chat Methods ──────────────────────────────────────────────
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
 
-  async sendMessage(
-    sessionKey: string,
-    message: string
-  ): Promise<GatewayResponse> {
-    return this.sendRequest("chat.send", {
-      sessionKey,
-      message,
-      deliver: false,
-      idempotencyKey: uuidv4(),
-    });
-  }
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed.startsWith(":")) continue;
+          if (!trimmed.startsWith("data: ")) continue;
 
-  async abortChat(sessionKey: string, runId?: string): Promise<GatewayResponse> {
-    const params: Record<string, unknown> = { sessionKey };
-    if (runId) params.runId = runId;
-    return this.sendRequest("chat.abort", params);
-  }
+          const data = trimmed.slice(6);
+          if (data === "[DONE]") {
+            this.handlers.onChatEvent?.({
+              runId,
+              sessionKey,
+              state: "final",
+              message: {
+                role: "assistant",
+                content: [{ type: "text", text: accumulated }],
+                timestamp: Date.now(),
+              },
+            });
+            this.activeAbortControllers.delete(sessionKey);
+            return;
+          }
 
-  async getChatHistory(
-    sessionKey: string,
-    limit: number = 50
-  ): Promise<GatewayResponse> {
-    return this.sendRequest("chat.history", { sessionKey, limit });
-  }
-
-  async listSessions(): Promise<GatewayResponse> {
-    return this.sendRequest("sessions.list", {});
-  }
-
-  // ── Agent Identity ────────────────────────────────────────────
-
-  private async fetchAgentIdentity(): Promise<void> {
-    try {
-      const res = await this.sendRequest("agent.identity.get", {});
-      if (res.ok && res.payload) {
-        this.handlers.onAgentIdentity?.(res.payload as unknown as AgentIdentity);
+          try {
+            const parsed = JSON.parse(data);
+            const delta = parsed.choices?.[0]?.delta?.content;
+            if (delta) {
+              accumulated += delta;
+              this.handlers.onChatEvent?.({
+                runId,
+                sessionKey,
+                state: "delta",
+                message: {
+                  role: "assistant",
+                  content: [{ type: "text", text: accumulated }],
+                  timestamp: Date.now(),
+                },
+              });
+            }
+          } catch {
+            // Skip malformed JSON
+          }
+        }
       }
-    } catch {
-      // Non-critical, ignore
-    }
-  }
 
-  // ── Reconnect Logic ───────────────────────────────────────────
-
-  private scheduleReconnect(): void {
-    if (this.destroyed) return;
-    this.cancelReconnect();
-
-    const delay = Math.min(
-      RECONNECT_BASE * Math.pow(2, this.reconnectAttempts),
-      RECONNECT_MAX
-    );
-    this.reconnectAttempts++;
-
-    this.reconnectTimer = setTimeout(() => {
-      this.reconnectTimer = null;
-      this.connect();
-    }, delay);
-  }
-
-  private cancelReconnect(): void {
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
-  }
-
-  // ── Cleanup ───────────────────────────────────────────────────
-
-  private cleanup(): void {
-    if (this.ws) {
-      this.ws.onopen = null;
-      this.ws.onmessage = null;
-      this.ws.onerror = null;
-      this.ws.onclose = null;
-      if (
-        this.ws.readyState === WebSocket.OPEN ||
-        this.ws.readyState === WebSocket.CONNECTING
-      ) {
-        this.ws.close();
+      // If we exit without [DONE], emit final with whatever we have
+      if (accumulated) {
+        this.handlers.onChatEvent?.({
+          runId,
+          sessionKey,
+          state: "final",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: accumulated }],
+            timestamp: Date.now(),
+          },
+        });
       }
-      this.ws = null;
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name === "AbortError") {
+        this.handlers.onChatEvent?.({
+          runId,
+          sessionKey,
+          state: "aborted",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "" }],
+            timestamp: Date.now(),
+          },
+        });
+      } else {
+        this.handlers.onChatEvent?.({
+          runId,
+          sessionKey,
+          state: "error",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "" }],
+            timestamp: Date.now(),
+          },
+          error: String(err),
+        });
+      }
+    } finally {
+      this.activeAbortControllers.delete(sessionKey);
     }
-    this.connected = false;
-    this.challengeReceived = false;
   }
 
-  private rejectAllPending(reason: string): void {
-    for (const [id, pending] of this.pending) {
-      clearTimeout(pending.timer);
-      pending.reject(new Error(reason));
-      this.pending.delete(id);
+  async abortChat(sessionKey: string, _runId?: string): Promise<void> {
+    const controller = this.activeAbortControllers.get(sessionKey);
+    if (controller) {
+      controller.abort();
+      this.activeAbortControllers.delete(sessionKey);
     }
+  }
+
+  private extractAgentId(sessionKey: string): string {
+    const parts = sessionKey.split(":");
+    return parts[1] || "main";
   }
 }
 
@@ -338,97 +222,38 @@ export function resetGateway(): void {
   }
 }
 
-// ── Test Connection (standalone) ────────────────────────────────────
+// ── Test Connection (HTTP) ────────────────────────────────────────
 
-export function testConnection(
+export async function testConnection(
   url: string,
   token: string
 ): Promise<{ ok: boolean; error?: string }> {
-  return new Promise((resolve) => {
-    const timeout = setTimeout(() => {
-      ws.close();
-      resolve({ ok: false, error: "Connection timed out" });
-    }, 10_000);
-
-    let ws: WebSocket;
-    try {
-      ws = new WebSocket(url);
-    } catch (e) {
-      clearTimeout(timeout);
-      resolve({ ok: false, error: `Invalid URL: ${e}` });
-      return;
+  const baseUrl = url.replace(/^ws:\/\//, "http://").replace(/^wss:\/\//, "https://");
+  try {
+    const res = await fetch("/api/chat", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-gateway-url": baseUrl,
+        "x-gateway-token": token,
+        "x-openclaw-agent-id": "main",
+      },
+      body: JSON.stringify({
+        model: "openclaw",
+        messages: [{ role: "user", content: "ping" }],
+        max_tokens: 1,
+      }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (res.status === 401) {
+      return { ok: false, error: "Authentication failed" };
     }
-
-    ws.onerror = () => {
-      clearTimeout(timeout);
-      resolve({ ok: false, error: "Connection failed" });
-    };
-
-    ws.onclose = () => {
-      clearTimeout(timeout);
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const frame = JSON.parse(event.data as string) as GatewayFrame;
-        if (frame.type === "event" && (frame as GatewayEvent).event === "connect.challenge") {
-          // Send connect request
-          const id = uuidv4();
-          ws.send(
-            JSON.stringify({
-              type: "req",
-              id,
-              method: "connect",
-              params: {
-                minProtocol: 3,
-                maxProtocol: 3,
-                client: {
-                  id: "webchat",
-                  version: "1.0.0",
-                  platform: "web",
-                  mode: "webchat",
-                },
-                role: "operator",
-                scopes: ["operator.read", "operator.write", "operator.admin"],
-                caps: [],
-                commands: [],
-                permissions: {},
-                auth: { token },
-                locale: "en-US",
-                userAgent: "chatclaw-web/1.0.0",
-              },
-            })
-          );
-
-          // Wait for response
-          ws.onmessage = (ev) => {
-            try {
-              const res = JSON.parse(ev.data as string) as GatewayFrame;
-              if (res.type === "res") {
-                const response = res as GatewayResponse;
-                clearTimeout(timeout);
-                ws.close();
-                if (response.ok) {
-                  resolve({ ok: true });
-                } else {
-                  resolve({
-                    ok: false,
-                    error: response.error?.message ?? "Auth failed",
-                  });
-                }
-              }
-            } catch {
-              clearTimeout(timeout);
-              ws.close();
-              resolve({ ok: false, error: "Invalid response" });
-            }
-          };
-        }
-      } catch {
-        clearTimeout(timeout);
-        ws.close();
-        resolve({ ok: false, error: "Invalid frame" });
-      }
-    };
-  });
+    // Any response from the endpoint means connectivity works
+    return { ok: true };
+  } catch (e) {
+    if (e instanceof Error && e.name === "TimeoutError") {
+      return { ok: false, error: "Connection timed out" };
+    }
+    return { ok: false, error: `Connection failed: ${e}` };
+  }
 }
