@@ -37,7 +37,7 @@ export function ConversationPanel() {
   }
 
   return (
-    <div className="flex flex-col w-[220px] border-l bg-muted/30 shrink-0">
+    <div className="flex flex-col w-[280px] border-l bg-muted/30 shrink-0">
       {/* Header */}
       <div className="flex items-center gap-2 px-3 py-2.5 border-b">
         <MessageCircle className="h-4 w-4 text-muted-foreground" />
