@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import {
   Bot, Users, Plus, Settings, RefreshCw, ChevronsUpDown, Check, Trash2,
-  ChevronDown, Sun, Moon, LogOut, MessageCircle,
+  ChevronDown, Sun, Moon, LogOut,
 } from "lucide-react";
 import { useSession, signOut } from "next-auth/react";
 import { useStore } from "@/lib/store";
@@ -12,8 +12,7 @@ import { getAgentAvatarUrl } from "@/lib/avatar";
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupAction,
   SidebarGroupLabel, SidebarHeader, SidebarMenu, SidebarMenuButton,
-  SidebarMenuItem, SidebarMenuAction, SidebarMenuSub, SidebarMenuSubItem,
-  SidebarMenuSubButton,
+  SidebarMenuItem, SidebarMenuAction,
 } from "@/components/ui/sidebar";
 import {
   Collapsible, CollapsibleContent, CollapsibleTrigger,
@@ -134,9 +133,6 @@ export function AppSidebar() {
                 {companyAgents.map((agent) => {
                   const identity = state.agentIdentities[agent.id];
                   const isActive = state.activeChatTarget?.type === "agent" && state.activeChatTarget?.id === agent.id;
-                  const agentConversations = isActive
-                    ? state.conversations.filter(c => c.targetType === "agent" && c.targetId === agent.id)
-                    : [];
 
                   return (
                     <SidebarMenuItem key={agent.id}>
@@ -158,21 +154,6 @@ export function AppSidebar() {
                       >
                         <Settings className="h-4 w-4" />
                       </SidebarMenuAction>
-                      {isActive && agentConversations.length > 0 && (
-                        <SidebarMenuSub>
-                          {agentConversations.map(conv => (
-                            <SidebarMenuSubItem key={conv.id}>
-                              <SidebarMenuSubButton
-                                isActive={state.activeConversationId === conv.id}
-                                onClick={() => actions.selectConversation(conv.id)}
-                              >
-                                <MessageCircle className="h-3 w-3" />
-                                <span className="truncate">{conv.title}</span>
-                              </SidebarMenuSubButton>
-                            </SidebarMenuSubItem>
-                          ))}
-                        </SidebarMenuSub>
-                      )}
                     </SidebarMenuItem>
                   );
                 })}
@@ -200,9 +181,6 @@ export function AppSidebar() {
               <SidebarMenu>
                 {companyTeams.map((team) => {
                   const isActive = state.activeChatTarget?.type === "team" && state.activeChatTarget?.id === team.id;
-                  const teamConversations = isActive
-                    ? state.conversations.filter(c => c.targetType === "team" && c.targetId === team.id)
-                    : [];
                   return (
                     <SidebarMenuItem key={team.id}>
                       <SidebarMenuButton
@@ -220,21 +198,6 @@ export function AppSidebar() {
                       >
                         <Settings className="h-4 w-4" />
                       </SidebarMenuAction>
-                      {isActive && teamConversations.length > 0 && (
-                        <SidebarMenuSub>
-                          {teamConversations.map(conv => (
-                            <SidebarMenuSubItem key={conv.id}>
-                              <SidebarMenuSubButton
-                                isActive={state.activeConversationId === conv.id}
-                                onClick={() => actions.selectConversation(conv.id)}
-                              >
-                                <MessageCircle className="h-3 w-3" />
-                                <span className="truncate">{conv.title}</span>
-                              </SidebarMenuSubButton>
-                            </SidebarMenuSubItem>
-                          ))}
-                        </SidebarMenuSub>
-                      )}
                     </SidebarMenuItem>
                   );
                 })}

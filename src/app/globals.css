@@ -195,3 +195,9 @@ pre code.hljs {
 .streaming-dot-1 { animation: streaming-dot 1.4s ease-in-out infinite; }
 .streaming-dot-2 { animation: streaming-dot 1.4s ease-in-out 0.2s infinite; }
 .streaming-dot-3 { animation: streaming-dot 1.4s ease-in-out 0.4s infinite; }
+
+/* Vertical text for collapsed panel */
+.writing-mode-vertical {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+}

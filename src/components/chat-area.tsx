@@ -7,7 +7,6 @@ import {
   Square,
   Users,
   MessageCircle,
-  SquarePen,
   Copy,
   RotateCcw,
 } from "lucide-react";
@@ -15,6 +14,7 @@ import { useStore } from "@/lib/store";
 import { MarkdownRenderer } from "@/components/markdown-renderer";
 import { cn } from "@/lib/utils";
 import { getAgentAvatarUrl, getUserAvatarUrl } from "@/lib/avatar";
+import { ConversationPanel } from "@/components/conversation-panel";
 
 function StreamingDots() {
   return (
@@ -114,7 +114,9 @@ export function ChatArea() {
     : `Message ${chatTitle} team`;
 
   return (
-    <div className="flex h-full flex-col bg-background">
+    <div className="flex h-full">
+      {/* Main chat column */}
+      <div className="flex flex-1 flex-col min-w-0 bg-background">
       {/* Chat header */}
       <div className="flex h-12 items-center gap-2 px-4 border-b shrink-0">
         {target.type === "agent" ? (
@@ -145,20 +147,6 @@ export function ChatArea() {
             })}
           </div>
         )}
-        <button
-          onClick={() => {
-            if (target) {
-              actions.createConversation(target.type, target.id);
-            }
-          }}
-          className={cn(
-            "shrink-0 flex h-8 w-8 items-center justify-center rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors",
-            target.type === "agent" ? "ml-auto" : ""
-          )}
-          title="New Chat"
-        >
-          <SquarePen className="h-4 w-4" />
-        </button>
       </div>
 
       {/* Messages */}
@@ -340,6 +328,10 @@ export function ChatArea() {
           )}
         </div>
       </div>
+      </div>
+
+      {/* Right panel */}
+      <ConversationPanel />
     </div>
   );
 }
