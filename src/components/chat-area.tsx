@@ -7,17 +7,21 @@ import {
   Square,
   Users,
   MessageCircle,
+  SquarePen,
+  Copy,
+  RotateCcw,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { MarkdownRenderer } from "@/components/markdown-renderer";
 import { cn } from "@/lib/utils";
+import { getAgentAvatarUrl, getUserAvatarUrl } from "@/lib/avatar";
 
 function StreamingDots() {
   return (
     <span className="inline-flex gap-1 ml-1">
-      <span className="streaming-dot-1 inline-block h-1.5 w-1.5 rounded-full bg-discord-muted" />
-      <span className="streaming-dot-2 inline-block h-1.5 w-1.5 rounded-full bg-discord-muted" />
-      <span className="streaming-dot-3 inline-block h-1.5 w-1.5 rounded-full bg-discord-muted" />
+      <span className="streaming-dot-1 inline-block h-1.5 w-1.5 rounded-full bg-muted-foreground" />
+      <span className="streaming-dot-2 inline-block h-1.5 w-1.5 rounded-full bg-muted-foreground" />
+      <span className="streaming-dot-3 inline-block h-1.5 w-1.5 rounded-full bg-muted-foreground" />
     </span>
   );
 }
@@ -87,7 +91,7 @@ export function ChatArea() {
   // No target selected — empty state
   if (!target) {
     return (
-      <div className="flex flex-1 h-full flex-col items-center justify-center bg-discord-light text-discord-muted">
+      <div className="flex h-full flex-col items-center justify-center bg-background text-muted-foreground">
         <MessageCircle className="h-16 w-16 mb-4 opacity-20" />
         <p className="text-xl font-semibold text-foreground mb-1">Welcome to ChatClaw</p>
         <p className="text-sm">Select an agent for DM or a team for group chat</p>
@@ -110,19 +114,19 @@ export function ChatArea() {
     : `Message ${chatTitle} team`;
 
   return (
-    <div className="flex flex-1 h-full flex-col bg-discord-light">
+    <div className="flex h-full flex-col bg-background">
       {/* Chat header */}
-      <div className="flex h-12 items-center gap-2 px-4 shadow-[0_1px_0_0_rgba(0,0,0,0.2)] shrink-0">
+      <div className="flex h-12 items-center gap-2 px-4 border-b shrink-0">
         {target.type === "agent" ? (
-          <Bot className="h-5 w-5 text-discord-muted" />
+          <Bot className="h-5 w-5 text-muted-foreground" />
         ) : (
-          <Users className="h-5 w-5 text-discord-muted" />
+          <Users className="h-5 w-5 text-muted-foreground" />
         )}
         <span className="font-semibold text-[15px] text-foreground">{chatTitle}</span>
         {chatSubtitle && (
           <>
             <div className="mx-2 h-6 w-px bg-border" />
-            <span className="text-sm text-discord-muted truncate">{chatSubtitle}</span>
+            <span className="text-sm text-muted-foreground truncate">{chatSubtitle}</span>
           </>
         )}
         {target.type === "team" && teamAgents.length > 0 && (
@@ -130,24 +134,38 @@ export function ChatArea() {
             {teamAgents.slice(0, 5).map((agent) => {
               const identity = state.agentIdentities[agent.id];
               return (
-                <div
+                <img
                   key={agent.id}
-                  className="flex h-6 w-6 items-center justify-center rounded-full border-2 border-discord-light bg-discord-blurple text-white text-[10px] font-bold"
+                  src={getAgentAvatarUrl(agent.id)}
+                  alt={agent.name}
+                  className="h-6 w-6 rounded-full border-2 border-background bg-muted"
                   title={identity?.name || agent.name}
-                >
-                  {identity?.emoji || agent.name[0].toUpperCase()}
-                </div>
+                />
               );
             })}
           </div>
         )}
+        <button
+          onClick={() => {
+            if (target) {
+              actions.createConversation(target.type, target.id);
+            }
+          }}
+          className={cn(
+            "shrink-0 flex h-8 w-8 items-center justify-center rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors",
+            target.type === "agent" ? "ml-auto" : ""
+          )}
+          title="New Chat"
+        >
+          <SquarePen className="h-4 w-4" />
+        </button>
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+      <div className="flex-1 overflow-y-auto min-h-0 px-4 py-4 space-y-4">
         {state.messages.length === 0 && streamingEntries.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-full text-discord-muted">
-            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-discord-mid mb-4">
+          <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
+            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted mb-4">
               {target.type === "agent" ? (
                 <Bot className="h-8 w-8" />
               ) : (
@@ -181,33 +199,34 @@ export function ChatArea() {
           return (
             <div
               key={msg.id}
-              className="group flex gap-4 py-0.5 hover:bg-black/[0.03] -mx-4 px-4 rounded"
+              className="group flex gap-4 py-0.5 hover:bg-muted/50 -mx-4 px-4 rounded relative"
             >
               <div className="shrink-0 mt-0.5">
-                <div
-                  className={cn(
-                    "flex h-10 w-10 items-center justify-center rounded-full text-sm font-semibold",
-                    isUser
-                      ? "bg-discord-green text-white"
-                      : "bg-discord-blurple text-white"
-                  )}
-                >
-                  {isUser
-                    ? "U"
-                    : identity?.emoji || agent?.name?.[0]?.toUpperCase() || "A"}
-                </div>
+                {isUser ? (
+                  <img
+                    src={getUserAvatarUrl()}
+                    alt="You"
+                    className="h-8 w-8 rounded-full bg-muted"
+                  />
+                ) : (
+                  <img
+                    src={getAgentAvatarUrl(msg.agentId || "unknown")}
+                    alt={agent?.name || "Agent"}
+                    className="h-8 w-8 rounded-full bg-muted"
+                  />
+                )}
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex items-baseline gap-2">
                   <span
                     className={cn(
                       "font-semibold text-[15px]",
-                      isUser ? "text-discord-green" : "text-discord-blurple"
+                      isUser ? "text-green-600" : "text-primary"
                     )}
                   >
                     {isUser ? "You" : identity?.name || agent?.name || "Agent"}
                   </span>
-                  <span className="text-[11px] text-discord-muted">{time}</span>
+                  <span className="text-[11px] text-muted-foreground">{time}</span>
                 </div>
                 <div className="text-[15px] leading-relaxed text-foreground">
                   {isUser ? (
@@ -216,6 +235,32 @@ export function ChatArea() {
                     <MarkdownRenderer content={msg.content} />
                   )}
                 </div>
+              </div>
+
+              {/* Hover action bar */}
+              <div className="absolute right-2 top-0 hidden group-hover:flex items-center gap-0.5 bg-background border rounded-md shadow-sm p-0.5">
+                <button
+                  onClick={() => navigator.clipboard.writeText(msg.content)}
+                  className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
+                  title="Copy"
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                </button>
+                {msg.role === "assistant" && (
+                  <button
+                    onClick={() => {
+                      const msgIndex = state.messages.findIndex(m => m.id === msg.id);
+                      const lastUserMsg = [...state.messages].slice(0, msgIndex).reverse().find(m => m.role === "user");
+                      if (lastUserMsg) {
+                        actions.sendMessage(lastUserMsg.content);
+                      }
+                    }}
+                    className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
+                    title="Retry"
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" />
+                  </button>
+                )}
               </div>
             </div>
           );
@@ -229,13 +274,15 @@ export function ChatArea() {
           return (
             <div key={agentId} className="flex gap-4 py-0.5 -mx-4 px-4">
               <div className="shrink-0 mt-0.5">
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-discord-blurple text-white text-sm font-semibold">
-                  {identity?.emoji || agent?.name?.[0]?.toUpperCase() || "A"}
-                </div>
+                <img
+                  src={getAgentAvatarUrl(agentId)}
+                  alt={agent?.name || "Agent"}
+                  className="h-8 w-8 rounded-full bg-muted"
+                />
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex items-baseline gap-2">
-                  <span className="font-semibold text-[15px] text-discord-blurple">
+                  <span className="font-semibold text-[15px] text-primary">
                     {identity?.name || agent?.name || "Agent"}
                   </span>
                   <StreamingDots />
@@ -244,7 +291,7 @@ export function ChatArea() {
                   {streaming.content ? (
                     <MarkdownRenderer content={streaming.content} />
                   ) : (
-                    <span className="text-discord-muted italic">Thinking...</span>
+                    <span className="text-muted-foreground italic">Thinking...</span>
                   )}
                 </div>
               </div>
@@ -257,7 +304,7 @@ export function ChatArea() {
 
       {/* Input area */}
       <div className="shrink-0 px-4 pb-6 pt-0">
-        <div className="flex items-end gap-2 rounded-lg bg-[#383a40] px-4 py-2">
+        <div className="flex items-end gap-2 rounded-lg bg-muted px-4 py-2">
           <textarea
             ref={textareaRef}
             value={input}
@@ -268,7 +315,7 @@ export function ChatArea() {
             placeholder={placeholder}
             disabled={!isConnected}
             rows={1}
-            className="flex-1 resize-none bg-transparent text-[15px] text-foreground placeholder:text-discord-muted outline-none disabled:opacity-50"
+            className="flex-1 resize-none bg-transparent text-[15px] text-foreground placeholder:text-muted-foreground outline-none disabled:opacity-50"
             style={{ maxHeight: 200, minHeight: 24 }}
           />
           {streamingEntries.length > 0 ? (
@@ -278,7 +325,7 @@ export function ChatArea() {
                   actions.abortStreaming(agentId);
                 }
               }}
-              className="shrink-0 flex h-8 w-8 items-center justify-center rounded bg-discord-red text-white hover:bg-discord-red/80 transition-colors"
+              className="shrink-0 flex h-8 w-8 items-center justify-center rounded bg-destructive text-white hover:bg-destructive/80 transition-colors"
             >
               <Square className="h-4 w-4" />
             </button>
@@ -286,7 +333,7 @@ export function ChatArea() {
             <button
               onClick={handleSend}
               disabled={!input.trim() || !isConnected}
-              className="shrink-0 flex h-8 w-8 items-center justify-center rounded bg-discord-blurple text-white hover:bg-discord-blurple/80 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              className="shrink-0 flex h-8 w-8 items-center justify-center rounded bg-primary text-primary-foreground hover:bg-primary/80 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
             >
               <Send className="h-4 w-4" />
             </button>

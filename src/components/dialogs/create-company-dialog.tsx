@@ -58,50 +58,50 @@ export function CreateCompanyDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="bg-discord-mid border-none text-foreground sm:max-w-md">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="text-xl text-center">Create a Company</DialogTitle>
-          <p className="text-sm text-discord-muted text-center">
+          <p className="text-sm text-muted-foreground text-center">
             Your company is where you and your AI agents work together.
           </p>
         </DialogHeader>
         <div className="space-y-4 py-2">
           <div>
-            <label className="text-xs font-bold uppercase tracking-wider text-discord-muted">
+            <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
               Company Name
             </label>
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="My AI Company"
-              className="mt-2 bg-discord-dark border-none text-foreground placeholder:text-discord-muted"
+              className="mt-2"
               onKeyDown={(e) => e.key === "Enter" && handleCreate()}
             />
           </div>
           <div>
-            <label className="text-xs font-bold uppercase tracking-wider text-discord-muted">
+            <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
               Description
             </label>
             <Input
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="What does your company do?"
-              className="mt-2 bg-discord-dark border-none text-foreground placeholder:text-discord-muted"
+              className="mt-2"
             />
           </div>
           <div>
-            <label className="text-xs font-bold uppercase tracking-wider text-discord-muted">
+            <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
               Gateway URL
             </label>
             <Input
               value={gatewayUrl}
               onChange={(e) => setGatewayUrl(e.target.value)}
               placeholder="ws://localhost:18789"
-              className="mt-2 bg-discord-dark border-none text-foreground placeholder:text-discord-muted font-mono text-sm"
+              className="mt-2 font-mono text-sm"
             />
           </div>
           <div>
-            <label className="text-xs font-bold uppercase tracking-wider text-discord-muted">
+            <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
               API Token
             </label>
             <Input
@@ -109,7 +109,7 @@ export function CreateCompanyDialog({
               value={gatewayToken}
               onChange={(e) => setGatewayToken(e.target.value)}
               placeholder="Your gateway token"
-              className="mt-2 bg-discord-dark border-none text-foreground placeholder:text-discord-muted font-mono text-sm"
+              className="mt-2 font-mono text-sm"
             />
           </div>
         </div>
@@ -117,7 +117,7 @@ export function CreateCompanyDialog({
           <Button
             onClick={handleCreate}
             disabled={!name.trim()}
-            className="w-full bg-discord-blurple hover:bg-discord-blurple/80 text-white"
+            className="w-full"
           >
             Create
           </Button>

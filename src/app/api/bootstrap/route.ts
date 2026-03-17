@@ -18,12 +18,20 @@ export async function GET() {
     const gatewayUrl = `ws://localhost:${port}`;
     const gatewayToken = gateway.auth.token;
 
+    // Always include default agent (from agents.defaults) as first entry
+    const agents: Array<{ id: string; name: string; workspace: string | null }> = [
+      { id: "main", name: "Default", workspace: null },
+    ];
+
+    // Append agents from agents.list
     const agentsList = config?.agents?.list ?? [];
-    const agents = agentsList.map((a: Record<string, unknown>) => ({
-      id: a.id,
-      name: a.name || a.id,
-      workspace: a.workspace,
-    }));
+    for (const a of agentsList) {
+      agents.push({
+        id: a.id,
+        name: a.name || a.id,
+        workspace: a.workspace ?? null,
+      });
+    }
 
     return NextResponse.json({
       found: true,

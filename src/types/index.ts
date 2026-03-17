@@ -40,12 +40,14 @@ export type ChatTargetType = "agent" | "team";
 export interface ChatTarget {
   type: ChatTargetType;
   id: string;
+  conversationId?: string;
 }
 
 // ── Database Models ─────────────────────────────────────────────────
 
 export interface Company {
   id: string;
+  userId?: string;
   name: string;
   logo?: string;
   description?: string;
@@ -76,8 +78,19 @@ export interface AgentTeam {
   createdAt: number;
 }
 
+export interface Conversation {
+  id: string;
+  targetType: ChatTargetType;
+  targetId: string;
+  companyId: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface Message {
   id: string;
+  conversationId: string;
   targetType: ChatTargetType;
   targetId: string;
   role: "user" | "assistant";
@@ -94,10 +107,12 @@ export interface AppState {
   agents: Agent[];
   teams: AgentTeam[];
   messages: Message[];
+  conversations: Conversation[];
 
   // Selection
   activeCompanyId: string | null;
   activeChatTarget: ChatTarget | null;
+  activeConversationId: string | null;
 
   // Gateway connection (shared)
   connectionStatus: ConnectionStatus;

@@ -24,6 +24,11 @@ import {
   deleteTeam as dbDeleteTeam,
   getMessagesByTarget,
   addMessage,
+  getConversationsByTarget,
+  createConversation as dbCreateConversation,
+  updateConversation as dbUpdateConversation,
+  deleteConversation as dbDeleteConversation,
+  getMessagesByConversation,
 } from "@/lib/db";
 import { GatewayClient } from "@/lib/gateway";
 import type {
@@ -31,6 +36,7 @@ import type {
   Agent,
   AgentTeam,
   Message,
+  Conversation,
   ConnectionStatus,
   AgentIdentity,
   ChatEventPayload,
@@ -42,12 +48,12 @@ import type {
 
 // ── Session Key Helpers ────────────────────────────────────────────
 
-function dmSessionKey(agentId: string): string {
-  return `agent:${agentId}:chatclaw:dm`;
+function dmSessionKey(agentId: string, conversationId: string): string {
+  return `agent:${agentId}:chatclaw:${conversationId}`;
 }
 
-function teamSessionKey(agentId: string, teamId: string): string {
-  return `agent:${agentId}:chatclaw:team:${teamId}`;
+function teamSessionKey(agentId: string, teamId: string, conversationId: string): string {
+  return `agent:${agentId}:chatclaw:team:${teamId}:${conversationId}`;
 }
 
 // ── Action Types ────────────────────────────────────────────────────
@@ -72,6 +78,11 @@ type Action =
   | { type: "ADD_MESSAGE"; message: Message }
   | { type: "SET_CONNECTION_STATUS"; status: ConnectionStatus }
   | { type: "SET_AGENT_IDENTITY"; agentId: string; identity: AgentIdentity }
+  | { type: "SET_CONVERSATIONS"; conversations: Conversation[] }
+  | { type: "ADD_CONVERSATION"; conversation: Conversation }
+  | { type: "UPDATE_CONVERSATION"; id: string; updates: Partial<Conversation> }
+  | { type: "DELETE_CONVERSATION"; id: string }
+  | { type: "SET_ACTIVE_CONVERSATION"; id: string | null }
   | { type: "SET_STREAMING"; agentId: string; targetType: ChatTargetType; targetId: string; sessionKey: string; isStreaming: boolean }
   | { type: "SET_STREAMING_CONTENT"; agentId: string; content: string; runId: string | null }
   | { type: "CLEAR_STREAMING"; agentId: string };
@@ -83,8 +94,10 @@ const initialState: AppState = {
   agents: [],
   teams: [],
   messages: [],
+  conversations: [],
   activeCompanyId: null,
   activeChatTarget: null,
+  activeConversationId: null,
   connectionStatus: "disconnected",
   agentIdentities: {},
   streamingStates: {},
@@ -153,11 +166,28 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, teams: state.teams.filter((t) => t.id !== action.id) };
 
     case "SET_ACTIVE_COMPANY":
-      return { ...state, activeCompanyId: action.id, activeChatTarget: null, messages: [] };
+      return { ...state, activeCompanyId: action.id, activeChatTarget: null, activeConversationId: null, messages: [], conversations: [] };
     case "SET_CHAT_TARGET":
       return { ...state, activeChatTarget: action.target };
     case "SET_MESSAGES":
       return { ...state, messages: action.messages };
+
+    case "SET_CONVERSATIONS":
+      return { ...state, conversations: action.conversations };
+    case "ADD_CONVERSATION":
+      return { ...state, conversations: [action.conversation, ...state.conversations] };
+    case "UPDATE_CONVERSATION":
+      return { ...state, conversations: state.conversations.map(c => c.id === action.id ? { ...c, ...action.updates } : c) };
+    case "DELETE_CONVERSATION": {
+      const newConvState = { ...state, conversations: state.conversations.filter(c => c.id !== action.id) };
+      if (state.activeConversationId === action.id) {
+        newConvState.activeConversationId = null;
+        newConvState.messages = [];
+      }
+      return newConvState;
+    }
+    case "SET_ACTIVE_CONVERSATION":
+      return { ...state, activeConversationId: action.id };
     case "ADD_MESSAGE":
       return { ...state, messages: [...state.messages, action.message] };
 
@@ -239,9 +269,14 @@ interface StoreActions {
   deleteTeam: (id: string) => Promise<void>;
 
   selectChatTarget: (target: ChatTarget) => Promise<void>;
+  selectConversation: (id: string) => Promise<void>;
+  createConversation: (targetType: ChatTargetType, targetId: string) => Promise<string>;
+  deleteConversation: (id: string) => Promise<void>;
+  renameConversation: (id: string, title: string) => Promise<void>;
   sendMessage: (content: string) => Promise<void>;
   abortStreaming: (agentId: string) => Promise<void>;
 
+  syncAgents: () => Promise<void>;
   connectGateway: () => void;
   disconnectGateway: () => void;
   restartGateway: () => Promise<void>;
@@ -312,6 +347,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
             if (finalText && streaming) {
               const msg: Message = {
                 id: uuidv4(),
+                conversationId: current.activeConversationId || "",
                 targetType: streaming.targetType,
                 targetId: streaming.targetId,
                 role: "assistant",
@@ -339,6 +375,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
             if (streaming) {
               const msg: Message = {
                 id: uuidv4(),
+                conversationId: current.activeConversationId || "",
                 targetType: streaming.targetType,
                 targetId: streaming.targetId,
                 role: "assistant",
@@ -366,6 +403,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
             if (abortedText && streaming) {
               const msg: Message = {
                 id: uuidv4(),
+                conversationId: current.activeConversationId || "",
                 targetType: streaming.targetType,
                 targetId: streaming.targetId,
                 role: "assistant",
@@ -551,8 +589,57 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const selectChatTargetAction = useCallback(async (target: ChatTarget) => {
     dispatch({ type: "SET_CHAT_TARGET", target });
-    const msgs = await getMessagesByTarget(target.type, target.id);
+
+    // Load conversations for this target
+    const convs = await getConversationsByTarget(target.type, target.id);
+    dispatch({ type: "SET_CONVERSATIONS", conversations: convs });
+
+    if (convs.length > 0) {
+      // Select most recent conversation
+      const latest = convs[0];
+      dispatch({ type: "SET_ACTIVE_CONVERSATION", id: latest.id });
+      const msgs = await getMessagesByConversation(latest.id);
+      dispatch({ type: "SET_MESSAGES", messages: msgs });
+    } else {
+      // No conversations yet — don't create one until first message
+      dispatch({ type: "SET_ACTIVE_CONVERSATION", id: null });
+      dispatch({ type: "SET_MESSAGES", messages: [] });
+    }
+  }, []);
+
+  const selectConversationAction = useCallback(async (id: string) => {
+    dispatch({ type: "SET_ACTIVE_CONVERSATION", id });
+    const msgs = await getMessagesByConversation(id);
     dispatch({ type: "SET_MESSAGES", messages: msgs });
+  }, []);
+
+  const createConversationAction = useCallback(async (targetType: ChatTargetType, targetId: string): Promise<string> => {
+    const current = stateRef.current;
+    const now = Date.now();
+    const conv: Conversation = {
+      id: uuidv4(),
+      targetType,
+      targetId,
+      companyId: current.activeCompanyId || "",
+      title: "New Chat",
+      createdAt: now,
+      updatedAt: now,
+    };
+    await dbCreateConversation(conv);
+    dispatch({ type: "ADD_CONVERSATION", conversation: conv });
+    dispatch({ type: "SET_ACTIVE_CONVERSATION", id: conv.id });
+    dispatch({ type: "SET_MESSAGES", messages: [] });
+    return conv.id;
+  }, []);
+
+  const deleteConversationAction = useCallback(async (id: string) => {
+    await dbDeleteConversation(id);
+    dispatch({ type: "DELETE_CONVERSATION", id });
+  }, []);
+
+  const renameConversationAction = useCallback(async (id: string, title: string) => {
+    await dbUpdateConversation(id, { title });
+    dispatch({ type: "UPDATE_CONVERSATION", id, updates: { title } });
   }, []);
 
   const sendMessageAction = useCallback(async (content: string) => {
@@ -563,8 +650,33 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const client = gatewayRef.current;
     if (!client || !client.isConnected()) return;
 
+    // Ensure we have an active conversation
+    let conversationId = current.activeConversationId;
+    if (!conversationId) {
+      const now = Date.now();
+      const conv: Conversation = {
+        id: uuidv4(),
+        targetType: target.type,
+        targetId: target.id,
+        companyId: current.activeCompanyId || "",
+        title: content.slice(0, 50),
+        createdAt: now,
+        updatedAt: now,
+      };
+      await dbCreateConversation(conv);
+      dispatch({ type: "ADD_CONVERSATION", conversation: conv });
+      dispatch({ type: "SET_ACTIVE_CONVERSATION", id: conv.id });
+      conversationId = conv.id;
+    } else if (current.messages.length === 0) {
+      // First message in conversation — update title
+      const title = content.slice(0, 50);
+      await dbUpdateConversation(conversationId, { title });
+      dispatch({ type: "UPDATE_CONVERSATION", id: conversationId, updates: { title } });
+    }
+
     const userMsg: Message = {
       id: uuidv4(),
+      conversationId,
       targetType: target.type,
       targetId: target.id,
       role: "user",
@@ -575,7 +687,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     dispatch({ type: "ADD_MESSAGE", message: userMsg });
 
     if (target.type === "agent") {
-      const sessionKey = dmSessionKey(target.id);
+      const sessionKey = dmSessionKey(target.id, conversationId);
       dispatch({
         type: "SET_STREAMING",
         agentId: target.id,
@@ -608,7 +720,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       let currentRoundReplies: Array<{ agentName: string; content: string }> = [];
 
       for (const agentId of team.agentIds) {
-        const sessionKey = teamSessionKey(agentId, target.id);
+        const sessionKey = teamSessionKey(agentId, target.id, conversationId);
         dispatch({
           type: "SET_STREAMING",
           agentId,
@@ -681,6 +793,45 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const syncAgentsAction = useCallback(async () => {
+    const current = stateRef.current;
+    const company = current.companies.find((c) => c.id === current.activeCompanyId);
+    if (!company?.gatewayUrl || !company?.gatewayToken) return;
+
+    try {
+      const res = await fetch("/api/agents/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          gatewayUrl: company.gatewayUrl,
+          gatewayToken: company.gatewayToken,
+        }),
+      });
+      const data = await res.json();
+      if (!data.agents) return;
+
+      const existingAgents = current.agents.filter((a) => a.companyId === company.id);
+      const existingIds = new Set(existingAgents.map((a) => a.id));
+
+      for (const agentData of data.agents) {
+        if (!existingIds.has(agentData.id)) {
+          const agent: Agent = {
+            id: agentData.id,
+            companyId: company.id,
+            name: agentData.name,
+            description: `OpenClaw agent: ${agentData.name}`,
+            specialty: "general" as AgentSpecialty,
+            createdAt: Date.now(),
+          };
+          await dbCreateAgent(agent);
+          dispatch({ type: "ADD_AGENT", agent });
+        }
+      }
+    } catch {
+      // Sync failed silently
+    }
+  }, []);
+
   const restartGatewayAction = useCallback(async () => {
     try {
       await fetch("/api/gateway/restart", { method: "POST" });
@@ -717,7 +868,26 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
             dispatch({ type: "ADD_COMPANY", company });
             dispatch({ type: "SET_ACTIVE_COMPANY", id: companyId });
 
-            for (const agentConfig of data.agents) {
+            // Sync agents from gateway (works for both local and remote)
+            let agentsToCreate = data.agents;
+            try {
+              const syncRes = await fetch("/api/agents/sync", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  gatewayUrl: data.gateway.url,
+                  gatewayToken: data.gateway.token,
+                }),
+              });
+              const syncData = await syncRes.json();
+              if (syncData.agents?.length) {
+                agentsToCreate = syncData.agents;
+              }
+            } catch {
+              // Fallback to config file agents
+            }
+
+            for (const agentConfig of agentsToCreate) {
               const agent: Agent = {
                 id: agentConfig.id,
                 companyId,
@@ -780,8 +950,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     updateTeam: updateTeamAction,
     deleteTeam: deleteTeamAction,
     selectChatTarget: selectChatTargetAction,
+    selectConversation: selectConversationAction,
+    createConversation: createConversationAction,
+    deleteConversation: deleteConversationAction,
+    renameConversation: renameConversationAction,
     sendMessage: sendMessageAction,
     abortStreaming: abortStreamingAction,
+    syncAgents: syncAgentsAction,
     connectGateway,
     disconnectGateway,
     restartGateway: restartGatewayAction,

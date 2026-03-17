@@ -1,112 +1,115 @@
 import type { Company, Agent, AgentTeam, Message, Conversation } from "@/types";
 
-const backend = process.env.NEXT_PUBLIC_DB_BACKEND || "indexeddb";
-
-type DbModule = typeof import("./db-indexeddb");
-
-let impl: DbModule;
-
-async function getImpl(): Promise<DbModule> {
-  if (!impl) {
-    if (backend === "drizzle") {
-      impl = await import("./db-drizzle");
-    } else {
-      impl = await import("./db-indexeddb");
-    }
+async function call(action: string, params: Record<string, unknown> = {}): Promise<unknown> {
+  const res = await fetch("/api/db", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action, params }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: "Unknown error" }));
+    throw new Error(err.error || `DB API error: ${res.status}`);
   }
-  return impl;
+  return res.json();
 }
 
 // ── Company helpers ────────────────────────────────────────────────
 
 export async function getAllCompanies(): Promise<Company[]> {
-  return (await getImpl()).getAllCompanies();
+  const res = (await call("getAllCompanies")) as { data: Company[] };
+  return res.data;
 }
 
 export async function getCompany(id: string): Promise<Company | undefined> {
-  return (await getImpl()).getCompany(id);
+  const res = (await call("getAllCompanies")) as { data: Company[] };
+  return res.data.find((c) => c.id === id);
 }
 
 export async function createCompany(company: Company): Promise<void> {
-  return (await getImpl()).createCompany(company);
+  await call("createCompany", company as unknown as Record<string, unknown>);
 }
 
 export async function updateCompany(id: string, updates: Partial<Company>): Promise<void> {
-  return (await getImpl()).updateCompany(id, updates);
+  await call("updateCompany", { id, updates });
 }
 
 export async function deleteCompany(id: string): Promise<void> {
-  return (await getImpl()).deleteCompany(id);
+  await call("deleteCompany", { id });
 }
 
 // ── Agent helpers ──────────────────────────────────────────────────
 
 export async function getAgentsByCompany(companyId: string): Promise<Agent[]> {
-  return (await getImpl()).getAgentsByCompany(companyId);
+  const res = (await call("getAgentsByCompany", { companyId })) as { data: Agent[] };
+  return res.data;
 }
 
 export async function getAgent(id: string): Promise<Agent | undefined> {
-  return (await getImpl()).getAgent(id);
+  return undefined;
 }
 
 export async function createAgent(agent: Agent): Promise<void> {
-  return (await getImpl()).createAgent(agent);
+  await call("createAgent", agent as unknown as Record<string, unknown>);
 }
 
 export async function updateAgent(id: string, updates: Partial<Agent>): Promise<void> {
-  return (await getImpl()).updateAgent(id, updates);
+  await call("updateAgent", { id, updates });
 }
 
 export async function deleteAgent(id: string): Promise<void> {
-  return (await getImpl()).deleteAgent(id);
+  await call("deleteAgent", { id });
 }
 
 // ── Team helpers ───────────────────────────────────────────────────
 
 export async function getTeamsByCompany(companyId: string): Promise<AgentTeam[]> {
-  return (await getImpl()).getTeamsByCompany(companyId);
+  const res = (await call("getTeamsByCompany", { companyId })) as { data: AgentTeam[] };
+  return res.data;
 }
 
 export async function createTeam(team: AgentTeam): Promise<void> {
-  return (await getImpl()).createTeam(team);
+  await call("createTeam", team as unknown as Record<string, unknown>);
 }
 
 export async function updateTeam(id: string, updates: Partial<AgentTeam>): Promise<void> {
-  return (await getImpl()).updateTeam(id, updates);
+  await call("updateTeam", { id, updates });
 }
 
 export async function deleteTeam(id: string): Promise<void> {
-  return (await getImpl()).deleteTeam(id);
+  await call("deleteTeam", { id });
 }
 
 // ── Message helpers ────────────────────────────────────────────────
 
 export async function getMessagesByTarget(targetType: string, targetId: string): Promise<Message[]> {
-  return (await getImpl()).getMessagesByTarget(targetType, targetId);
+  const res = (await call("getMessagesByTarget", { targetType, targetId })) as { data: Message[] };
+  return res.data;
 }
 
 export async function addMessage(message: Message): Promise<void> {
-  return (await getImpl()).addMessage(message);
+  await call("addMessage", message as unknown as Record<string, unknown>);
 }
 
 export async function getMessagesByConversation(conversationId: string): Promise<Message[]> {
-  return (await getImpl()).getMessagesByConversation(conversationId);
+  const res = (await call("getMessagesByConversation", { conversationId })) as { data: Message[] };
+  return res.data;
 }
 
 // ── Conversation helpers ──────────────────────────────────────────
 
 export async function getConversationsByTarget(targetType: string, targetId: string): Promise<Conversation[]> {
-  return (await getImpl()).getConversationsByTarget(targetType, targetId);
+  const res = (await call("getConversationsByTarget", { targetType, targetId })) as { data: Conversation[] };
+  return res.data;
 }
 
 export async function createConversation(conv: Conversation): Promise<void> {
-  return (await getImpl()).createConversation(conv);
+  await call("createConversation", conv as unknown as Record<string, unknown>);
 }
 
 export async function updateConversation(id: string, updates: Partial<Conversation>): Promise<void> {
-  return (await getImpl()).updateConversation(id, updates);
+  await call("updateConversation", { id, updates });
 }
 
 export async function deleteConversation(id: string): Promise<void> {
-  return (await getImpl()).deleteConversation(id);
+  await call("deleteConversation", { id });
 }

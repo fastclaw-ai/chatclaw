@@ -45,85 +45,75 @@
   --radius-2xl: calc(var(--radius) + 8px);
   --radius-3xl: calc(var(--radius) + 12px);
   --radius-4xl: calc(var(--radius) + 16px);
-
-  /* Discord custom colors */
-  --color-discord-dark: #1e1f22;
-  --color-discord-darker: #111214;
-  --color-discord-mid: #2b2d31;
-  --color-discord-light: #313338;
-  --color-discord-text: #dbdee1;
-  --color-discord-muted: #949ba4;
-  --color-discord-link: #00a8fc;
-  --color-discord-green: #23a55a;
-  --color-discord-yellow: #f0b232;
-  --color-discord-red: #f23f43;
-  --color-discord-blurple: #5865f2;
 }
 
-/* Discord Dark Theme */
 :root {
-  --radius: 0.5rem;
-  --background: #313338;
-  --foreground: #dbdee1;
-  --card: #2b2d31;
-  --card-foreground: #dbdee1;
-  --popover: #2b2d31;
-  --popover-foreground: #dbdee1;
-  --primary: #5865f2;
-  --primary-foreground: #ffffff;
-  --secondary: #4e5058;
-  --secondary-foreground: #dbdee1;
-  --muted: #2b2d31;
-  --muted-foreground: #949ba4;
-  --accent: #404249;
-  --accent-foreground: #dbdee1;
-  --destructive: #f23f43;
-  --border: #3f4147;
-  --input: #1e1f22;
-  --ring: #5865f2;
-  --chart-1: #5865f2;
-  --chart-2: #23a55a;
-  --chart-3: #f0b232;
-  --chart-4: #f23f43;
-  --chart-5: #eb459e;
-  --sidebar: #1e1f22;
-  --sidebar-foreground: #949ba4;
-  --sidebar-primary: #dbdee1;
-  --sidebar-primary-foreground: #1e1f22;
-  --sidebar-accent: #35373c;
-  --sidebar-accent-foreground: #dbdee1;
-  --sidebar-border: #1e1f22;
-  --sidebar-ring: #5865f2;
+  --radius: 0.625rem;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
 }
 
-/* Dark class variant — same Discord theme */
 .dark {
-  --background: #313338;
-  --foreground: #dbdee1;
-  --card: #2b2d31;
-  --card-foreground: #dbdee1;
-  --popover: #2b2d31;
-  --popover-foreground: #dbdee1;
-  --primary: #5865f2;
-  --primary-foreground: #ffffff;
-  --secondary: #4e5058;
-  --secondary-foreground: #dbdee1;
-  --muted: #2b2d31;
-  --muted-foreground: #949ba4;
-  --accent: #404249;
-  --accent-foreground: #dbdee1;
-  --destructive: #f23f43;
-  --border: #3f4147;
-  --input: #1e1f22;
-  --ring: #5865f2;
-  --sidebar: #1e1f22;
-  --sidebar-foreground: #949ba4;
-  --sidebar-primary: #dbdee1;
-  --sidebar-primary-foreground: #1e1f22;
-  --sidebar-accent: #35373c;
-  --sidebar-accent-foreground: #dbdee1;
-  --sidebar-border: #1e1f22;
-  --sidebar-ring: #5865f2;
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.145 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.145 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.985 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.396 0.141 25.723);
+  --border: oklch(0.269 0 0);
+  --input: oklch(0.269 0 0);
+  --ring: oklch(0.556 0 0);
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+  --sidebar: oklch(0.175 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.985 0 0);
+  --sidebar-primary-foreground: oklch(0.205 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(0.269 0 0);
+  --sidebar-ring: oklch(0.556 0 0);
 }
 
 @layer base {
@@ -181,7 +171,7 @@ pre code.hljs {
   color: #e06c75;
 }
 
-/* Scrollbar styling — Discord-like */
+/* Scrollbar styling */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -190,11 +180,11 @@ pre code.hljs {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #1a1b1e;
+  background: oklch(0.269 0 0);
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #27282c;
+  background: oklch(0.35 0 0);
 }
 
 /* Streaming animation */

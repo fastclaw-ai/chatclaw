@@ -1,18 +1,19 @@
 "use client";
 
 import { StoreProvider } from "@/lib/store";
-import { CompanySidebar } from "@/components/company-sidebar";
-import { NavigationPanel } from "@/components/navigation-panel";
+import { AppSidebar } from "@/components/app-sidebar";
 import { ChatArea } from "@/components/chat-area";
+import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 
 export default function Home() {
   return (
     <StoreProvider>
-      <div className="flex h-screen w-screen overflow-hidden">
-        <CompanySidebar />
-        <NavigationPanel />
-        <ChatArea />
-      </div>
+      <SidebarProvider>
+        <AppSidebar />
+        <SidebarInset className="h-screen overflow-hidden">
+          <ChatArea />
+        </SidebarInset>
+      </SidebarProvider>
     </StoreProvider>
   );
 }

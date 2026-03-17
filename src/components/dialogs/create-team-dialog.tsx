@@ -11,6 +11,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useStore } from "@/lib/store";
+import { getAgentAvatarUrl } from "@/lib/avatar";
 import { Check } from "lucide-react";
 
 export function CreateTeamDialog({
@@ -49,36 +50,36 @@ export function CreateTeamDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="bg-discord-mid border-none text-foreground sm:max-w-md">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="text-xl">Create Team</DialogTitle>
-          <p className="text-sm text-discord-muted">
+          <p className="text-sm text-muted-foreground">
             Create a group chat with multiple agents.
           </p>
         </DialogHeader>
         <div className="space-y-4 py-2">
           <div>
-            <label className="text-xs font-bold uppercase tracking-wider text-discord-muted">Team Name</label>
+            <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Team Name</label>
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Dev Team"
-              className="mt-2 bg-discord-dark border-none text-foreground placeholder:text-discord-muted"
+              className="mt-2"
               onKeyDown={(e) => e.key === "Enter" && handleCreate()}
             />
           </div>
           <div>
-            <label className="text-xs font-bold uppercase tracking-wider text-discord-muted">Description</label>
+            <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Description</label>
             <Input
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="What does this team do?"
-              className="mt-2 bg-discord-dark border-none text-foreground placeholder:text-discord-muted"
+              className="mt-2"
             />
           </div>
           {companyAgents.length > 0 ? (
             <div>
-              <label className="text-xs font-bold uppercase tracking-wider text-discord-muted">
+              <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
                 Members ({selectedAgentIds.length} selected)
               </label>
               <div className="mt-2 space-y-1">
@@ -90,23 +91,21 @@ export function CreateTeamDialog({
                       onClick={() => toggleAgent(agent.id)}
                       className={`flex w-full items-center gap-2 rounded-md p-2 transition-colors ${
                         selected
-                          ? "bg-discord-blurple/20 text-foreground"
-                          : "hover:bg-accent/50 text-discord-muted"
+                          ? "bg-primary/20 text-foreground"
+                          : "hover:bg-accent/50 text-muted-foreground"
                       }`}
                     >
-                      <div className="flex h-6 w-6 items-center justify-center rounded-full bg-discord-blurple text-white text-xs">
-                        {agent.name[0].toUpperCase()}
-                      </div>
+                      <img src={getAgentAvatarUrl(agent.id)} alt={agent.name} className="h-6 w-6 rounded-full bg-muted" />
                       <span className="text-sm flex-1 text-left">{agent.name}</span>
-                      <span className="text-[11px] text-discord-muted">{agent.specialty}</span>
-                      {selected && <Check className="h-4 w-4 text-discord-green" />}
+                      <span className="text-[11px] text-muted-foreground">{agent.specialty}</span>
+                      {selected && <Check className="h-4 w-4 text-green-600" />}
                     </button>
                   );
                 })}
               </div>
             </div>
           ) : (
-            <p className="text-sm text-discord-muted italic">
+            <p className="text-sm text-muted-foreground italic">
               Add agents first before creating a team.
             </p>
           )}
@@ -115,7 +114,7 @@ export function CreateTeamDialog({
           <Button
             onClick={handleCreate}
             disabled={!name.trim() || selectedAgentIds.length === 0}
-            className="w-full bg-discord-blurple hover:bg-discord-blurple/80 text-white"
+            className="w-full"
           >
             Create Team
           </Button>
