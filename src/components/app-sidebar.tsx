@@ -5,7 +5,7 @@ import {
   Bot, Users, Plus, Settings, RefreshCw, ChevronsUpDown, Check, Trash2,
   ChevronDown, Sun, Moon, LogOut,
 } from "lucide-react";
-import { useSession, signOut } from "next-auth/react";
+import { useAuthSession } from "@/hooks/use-auth-session";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { getAgentAvatarUrl } from "@/lib/avatar";
@@ -30,7 +30,7 @@ import { TeamSettingsDialog } from "@/components/dialogs/team-settings-dialog";
 import type { Agent, AgentTeam } from "@/types";
 
 export function AppSidebar() {
-  const { data: session } = useSession();
+  const { session, signOut } = useAuthSession();
   const { state, actions } = useStore();
   const [showCreateCompany, setShowCreateCompany] = useState(false);
   const [showCreateAgent, setShowCreateAgent] = useState(false);
