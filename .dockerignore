@@ -1,0 +1,39 @@
+# Dependencies
+node_modules
+.pnpm-store
+
+# Build output
+.next
+out
+build
+dist
+
+# Data
+data
+*.db
+
+# Dev/IDE
+.git
+.gitignore
+.vscode
+.idea
+*.swp
+*.swo
+.DS_Store
+
+# Env (secrets)
+.env
+.env.local
+.env.*.local
+
+# Docs
+README.md
+LICENSE
+PRODUCT_VISION.md
+REFINE_VISION.md
+REQUIREMENTS.md
+
+# Docker
+Dockerfile
+docker-compose*.yml
+.dockerignore
