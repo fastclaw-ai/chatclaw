@@ -1,30 +1,15 @@
 import { v4 as uuidv4 } from "uuid";
-import type {
-  ChatEventPayload,
-  ConnectionStatus,
-} from "@/types";
+import type { RuntimeConfig, RuntimeEventHandler, RuntimeProvider } from "./types";
 
-// ── Types ───────────────────────────────────────────────────────────
-
-export type GatewayEventHandler = {
-  onConnectionStatus?: (status: ConnectionStatus) => void;
-  onChatEvent?: (payload: ChatEventPayload) => void;
-  onError?: (error: string) => void;
-};
-
-// ── Gateway Client (HTTP SSE) ──────────────────────────────────────
-
-export class GatewayClient {
-  private baseUrl: string = "";
-  private token: string = "";
-  private handlers: GatewayEventHandler = {};
+export class RuntimeClient implements RuntimeProvider {
+  private config: RuntimeConfig = { type: "openclaw", baseUrl: "", apiKey: "" };
+  private handlers: RuntimeEventHandler = {};
   private destroyed = false;
   private connected = false;
   private activeAbortControllers = new Map<string, AbortController>();
 
-  configure(url: string, token: string, handlers: GatewayEventHandler): void {
-    this.baseUrl = url.replace(/^ws:\/\//, "http://").replace(/^wss:\/\//, "https://");
-    this.token = token;
+  configure(config: RuntimeConfig, handlers: RuntimeEventHandler): void {
+    this.config = config;
     this.handlers = handlers;
   }
 
@@ -52,25 +37,54 @@ export class GatewayClient {
     return this.connected && !this.destroyed;
   }
 
-  async sendMessage(sessionKey: string, message: string): Promise<void> {
-    const agentId = this.extractAgentId(sessionKey);
+  getConfig(): RuntimeConfig {
+    return this.config;
+  }
+
+  supportsAgentSync(): boolean {
+    return this.config.type === "openclaw";
+  }
+
+  supportsWorkspaceFiles(): boolean {
+    return this.config.type === "openclaw";
+  }
+
+  supportsSessionKeys(): boolean {
+    return this.config.type === "openclaw";
+  }
+
+  async sendMessage(sessionKey: string, message: string, agentId?: string): Promise<void> {
+    const resolvedAgentId = agentId || this.extractAgentId(sessionKey);
     const abortController = new AbortController();
     this.activeAbortControllers.set(sessionKey, abortController);
-
     const runId = uuidv4();
 
     try {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        "x-gateway-url": this.config.baseUrl,
+        "x-gateway-token": this.config.apiKey,
+      };
+
+      let model = this.config.model || "gpt-4";
+
+      if (this.config.type === "openclaw") {
+        headers["x-openclaw-agent-id"] = resolvedAgentId;
+        headers["x-openclaw-session-key"] = sessionKey;
+        model = `openclaw:${resolvedAgentId}`;
+      }
+
+      if (this.config.headers) {
+        for (const [k, v] of Object.entries(this.config.headers)) {
+          headers[k] = v;
+        }
+      }
+
       const res = await fetch("/api/chat", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-gateway-url": this.baseUrl,
-          "x-gateway-token": this.token,
-          "x-openclaw-agent-id": agentId,
-          "x-openclaw-session-key": sessionKey,
-        },
+        headers,
         body: JSON.stringify({
-          model: `openclaw:${agentId}`,
+          model,
           messages: [{ role: "user", content: message }],
           stream: true,
         }),
@@ -106,8 +120,7 @@ export class GatewayClient {
 
         for (const line of lines) {
           const trimmed = line.trim();
-          if (!trimmed || trimmed.startsWith(":")) continue;
-          if (!trimmed.startsWith("data: ")) continue;
+          if (!trimmed || trimmed.startsWith(":") || !trimmed.startsWith("data: ")) continue;
 
           const data = trimmed.slice(6);
           if (data === "[DONE]") {
@@ -115,11 +128,7 @@ export class GatewayClient {
               runId,
               sessionKey,
               state: "final",
-              message: {
-                role: "assistant",
-                content: [{ type: "text", text: accumulated }],
-                timestamp: Date.now(),
-              },
+              message: { role: "assistant", content: [{ type: "text", text: accumulated }], timestamp: Date.now() },
             });
             this.activeAbortControllers.delete(sessionKey);
             return;
@@ -134,11 +143,7 @@ export class GatewayClient {
                 runId,
                 sessionKey,
                 state: "delta",
-                message: {
-                  role: "assistant",
-                  content: [{ type: "text", text: accumulated }],
-                  timestamp: Date.now(),
-                },
+                message: { role: "assistant", content: [{ type: "text", text: accumulated }], timestamp: Date.now() },
               });
             }
           } catch {
@@ -153,11 +158,7 @@ export class GatewayClient {
           runId,
           sessionKey,
           state: "final",
-          message: {
-            role: "assistant",
-            content: [{ type: "text", text: accumulated }],
-            timestamp: Date.now(),
-          },
+          message: { role: "assistant", content: [{ type: "text", text: accumulated }], timestamp: Date.now() },
         });
       }
     } catch (err: unknown) {
@@ -166,22 +167,14 @@ export class GatewayClient {
           runId,
           sessionKey,
           state: "aborted",
-          message: {
-            role: "assistant",
-            content: [{ type: "text", text: "" }],
-            timestamp: Date.now(),
-          },
+          message: { role: "assistant", content: [{ type: "text", text: "" }], timestamp: Date.now() },
         });
       } else {
         this.handlers.onChatEvent?.({
           runId,
           sessionKey,
           state: "error",
-          message: {
-            role: "assistant",
-            content: [{ type: "text", text: "" }],
-            timestamp: Date.now(),
-          },
+          message: { role: "assistant", content: [{ type: "text", text: "" }], timestamp: Date.now() },
           error: String(err),
         });
       }
@@ -190,7 +183,7 @@ export class GatewayClient {
     }
   }
 
-  async abortChat(sessionKey: string, _runId?: string): Promise<void> {
+  async abortChat(sessionKey: string): Promise<void> {
     const controller = this.activeAbortControllers.get(sessionKey);
     if (controller) {
       controller.abort();
@@ -204,42 +197,32 @@ export class GatewayClient {
   }
 }
 
-// ── Singleton ─────────────────────────────────────────────────────
+export type { RuntimeType, RuntimeConfig, RuntimeEventHandler, RuntimeProvider } from "./types";
 
-let instance: GatewayClient | null = null;
-
-export function getGateway(): GatewayClient {
-  if (!instance) {
-    instance = new GatewayClient();
-  }
-  return instance;
-}
-
-export function resetGateway(): void {
-  if (instance) {
-    instance.destroy();
-    instance = null;
-  }
-}
-
-// ── Test Connection (HTTP) ────────────────────────────────────────
+// ── Test Connection ────────────────────────────────────────────────
 
 export async function testConnection(
   url: string,
-  token: string
+  token: string,
+  runtimeType: string = "openclaw"
 ): Promise<{ ok: boolean; error?: string }> {
   const baseUrl = url.replace(/^ws:\/\//, "http://").replace(/^wss:\/\//, "https://");
   try {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      "x-gateway-url": baseUrl,
+      "x-gateway-token": token,
+    };
+
+    if (runtimeType === "openclaw") {
+      headers["x-openclaw-agent-id"] = "main";
+    }
+
     const res = await fetch("/api/chat", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-gateway-url": baseUrl,
-        "x-gateway-token": token,
-        "x-openclaw-agent-id": "main",
-      },
+      headers,
       body: JSON.stringify({
-        model: "openclaw",
+        model: runtimeType === "openclaw" ? "openclaw" : "test",
         messages: [{ role: "user", content: "ping" }],
         max_tokens: 1,
       }),
@@ -248,7 +231,6 @@ export async function testConnection(
     if (res.status === 401) {
       return { ok: false, error: "Authentication failed" };
     }
-    // Any response from the endpoint means connectivity works
     return { ok: true };
   } catch (e) {
     if (e instanceof Error && e.name === "TimeoutError") {

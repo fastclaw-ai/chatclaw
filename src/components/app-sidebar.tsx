@@ -119,15 +119,17 @@ export function AppSidebar() {
                 <ChevronDown className="ml-auto h-4 w-4 transition-transform group-data-[state=open]/collapsible:rotate-0 group-data-[state=closed]/collapsible:-rotate-90" />
               </CollapsibleTrigger>
             </SidebarGroupLabel>
-            <SidebarGroupAction
-              title="Sync agents"
-              onClick={() => {
-                setSyncing(true);
-                actions.syncAgents().finally(() => setSyncing(false));
-              }}
-            >
-              <RefreshCw className={cn("h-4 w-4", syncing && "animate-spin")} />
-            </SidebarGroupAction>
+            {activeCompany?.runtimeType === "openclaw" && (
+              <SidebarGroupAction
+                title="Sync agents"
+                onClick={() => {
+                  setSyncing(true);
+                  actions.syncAgents().finally(() => setSyncing(false));
+                }}
+              >
+                <RefreshCw className={cn("h-4 w-4", syncing && "animate-spin")} />
+              </SidebarGroupAction>
+            )}
             <CollapsibleContent>
               <SidebarMenu>
                 {companyAgents.map((agent) => {

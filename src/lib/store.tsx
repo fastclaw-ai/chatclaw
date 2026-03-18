@@ -30,7 +30,7 @@ import {
   deleteConversation as dbDeleteConversation,
   getMessagesByConversation,
 } from "@/lib/db";
-import { GatewayClient } from "@/lib/gateway";
+import { RuntimeClient } from "@/lib/runtime";
 import type {
   Company,
   Agent,
@@ -250,7 +250,7 @@ function reducer(state: AppState, action: Action): AppState {
 // ── Context ─────────────────────────────────────────────────────────
 
 interface StoreActions {
-  createCompany: (name: string, gatewayUrl: string, gatewayToken: string, description?: string) => Promise<Company>;
+  createCompany: (name: string, gatewayUrl: string, gatewayToken: string, description?: string, opts?: { runtimeType?: string; model?: string; customHeaders?: string }) => Promise<Company>;
   updateCompany: (id: string, updates: Partial<Company>) => Promise<void>;
   deleteCompany: (id: string) => Promise<void>;
   selectCompany: (id: string) => Promise<void>;
@@ -296,7 +296,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState);
   const stateRef = useRef(state);
   stateRef.current = state;
-  const gatewayRef = useRef<GatewayClient | null>(null);
+  const gatewayRef = useRef<RuntimeClient | null>(null);
   const pendingStreamResolvers = useRef<Map<string, () => void>>(new Map());
 
   // ── Resolve agentId from sessionKey ───────────────────────────
@@ -317,10 +317,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       gatewayRef.current.destroy();
     }
 
-    const client = new GatewayClient();
+    const client = new RuntimeClient();
     gatewayRef.current = client;
 
-    client.configure(company.gatewayUrl, company.gatewayToken, {
+    const runtimeConfig = {
+      type: company.runtimeType || "openclaw" as const,
+      baseUrl: company.gatewayUrl.replace(/^ws:\/\//, "http://").replace(/^wss:\/\//, "https://"),
+      apiKey: company.gatewayToken,
+      model: company.model,
+      headers: company.customHeaders ? JSON.parse(company.customHeaders) : undefined,
+    };
+
+    client.configure(runtimeConfig, {
       onConnectionStatus: (status: ConnectionStatus) => {
         dispatch({ type: "SET_CONNECTION_STATUS", status });
       },
@@ -444,14 +452,17 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   // ── Actions ───────────────────────────────────────────────────────
 
-  const createCompanyAction = useCallback(async (name: string, gatewayUrl: string, gatewayToken: string, description?: string) => {
+  const createCompanyAction = useCallback(async (name: string, gatewayUrl: string, gatewayToken: string, description?: string, opts?: { runtimeType?: string; model?: string; customHeaders?: string }) => {
     const now = Date.now();
     const company: Company = {
       id: uuidv4(),
       name,
       description,
+      runtimeType: (opts?.runtimeType as Company["runtimeType"]) || "openclaw",
       gatewayUrl,
       gatewayToken,
+      model: opts?.model,
+      customHeaders: opts?.customHeaders,
       createdAt: now,
       updatedAt: now,
     };
@@ -464,7 +475,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     await dbUpdateCompany(id, updates);
     dispatch({ type: "UPDATE_COMPANY", id, updates });
 
-    if (updates.gatewayUrl || updates.gatewayToken) {
+    if (updates.gatewayUrl || updates.gatewayToken || updates.runtimeType || updates.model || updates.customHeaders) {
       const current = stateRef.current;
       if (current.activeCompanyId === id) {
         setTimeout(() => connectGateway(), 100);
@@ -786,7 +797,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const client = gatewayRef.current;
     if (client) {
       try {
-        await client.abortChat(streaming.sessionKey, streaming.runId ?? undefined);
+        await client.abortChat(streaming.sessionKey);
       } catch {
         dispatch({ type: "CLEAR_STREAMING", agentId });
       }
@@ -797,6 +808,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const current = stateRef.current;
     const company = current.companies.find((c) => c.id === current.activeCompanyId);
     if (!company?.gatewayUrl || !company?.gatewayToken) return;
+    if (company.runtimeType !== "openclaw") return;
 
     try {
       const res = await fetch("/api/agents/sync", {
@@ -859,6 +871,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
               id: companyId,
               name: "OpenClaw",
               description: "Auto-configured from OpenClaw Gateway",
+              runtimeType: "openclaw",
               gatewayUrl: data.gateway.url,
               gatewayToken: data.gateway.token,
               createdAt: Date.now(),

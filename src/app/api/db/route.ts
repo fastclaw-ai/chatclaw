@@ -35,8 +35,11 @@ export async function POST(req: NextRequest) {
           name: params.name,
           logo: params.logo || null,
           description: params.description || null,
+          runtimeType: params.runtimeType || "openclaw",
           gatewayUrl: params.gatewayUrl || "",
           gatewayToken: params.gatewayToken || "",
+          model: params.model || null,
+          customHeaders: params.customHeaders || null,
           createdAt: params.createdAt,
           updatedAt: params.updatedAt,
         }).run();

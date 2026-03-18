@@ -10,7 +10,16 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { useStore } from "@/lib/store";
+import { cn } from "@/lib/utils";
+import type { RuntimeType } from "@/types";
+
+const runtimeOptions: { value: RuntimeType; label: string; description: string }[] = [
+  { value: "openclaw", label: "OpenClaw", description: "Full OpenClaw integration" },
+  { value: "openai", label: "OpenAI Compatible", description: "OpenRouter, LiteLLM, vLLM, etc." },
+  { value: "custom", label: "Custom", description: "Custom endpoint" },
+];
 
 export function CreateCompanyDialog({
   open,
@@ -22,12 +31,15 @@ export function CreateCompanyDialog({
   const { actions } = useStore();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [runtimeType, setRuntimeType] = useState<RuntimeType>("openclaw");
   const [gatewayUrl, setGatewayUrl] = useState("");
   const [gatewayToken, setGatewayToken] = useState("");
+  const [model, setModel] = useState("");
+  const [customHeaders, setCustomHeaders] = useState("");
 
-  // Auto-detect gateway on dialog open
+  // Auto-detect gateway on dialog open (only for openclaw)
   useEffect(() => {
-    if (open && !gatewayUrl && !gatewayToken) {
+    if (open && runtimeType === "openclaw" && !gatewayUrl && !gatewayToken) {
       fetch("/api/detect-gateway")
         .then((res) => res.json())
         .then((data) => {
@@ -38,7 +50,7 @@ export function CreateCompanyDialog({
         })
         .catch(() => {});
     }
-  }, [open, gatewayUrl, gatewayToken]);
+  }, [open, runtimeType, gatewayUrl, gatewayToken]);
 
   async function handleCreate() {
     if (!name.trim()) return;
@@ -46,15 +58,27 @@ export function CreateCompanyDialog({
       name.trim(),
       gatewayUrl.trim(),
       gatewayToken.trim(),
-      description.trim() || undefined
+      description.trim() || undefined,
+      {
+        runtimeType,
+        model: model.trim() || undefined,
+        customHeaders: customHeaders.trim() || undefined,
+      }
     );
     await actions.selectCompany(company.id);
     setName("");
     setDescription("");
+    setRuntimeType("openclaw");
     setGatewayUrl("");
     setGatewayToken("");
+    setModel("");
+    setCustomHeaders("");
     onOpenChange(false);
   }
+
+  const urlLabel = runtimeType === "openclaw" ? "Gateway URL" : "API Base URL";
+  const urlPlaceholder = runtimeType === "openclaw" ? "ws://localhost:18789" : "https://api.openai.com/v1";
+  const tokenLabel = runtimeType === "openclaw" ? "Gateway Token" : "API Key";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -89,29 +113,84 @@ export function CreateCompanyDialog({
               className="mt-2"
             />
           </div>
+
+          {/* Runtime Type Selector */}
           <div>
             <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-              Gateway URL
+              Runtime Type
+            </label>
+            <div className="grid grid-cols-3 gap-2 mt-2">
+              {runtimeOptions.map((opt) => (
+                <button
+                  key={opt.value}
+                  onClick={() => setRuntimeType(opt.value)}
+                  className={cn(
+                    "flex flex-col items-start rounded-lg border p-2.5 text-left transition-colors",
+                    runtimeType === opt.value
+                      ? "border-primary bg-primary/5"
+                      : "border-border hover:border-primary/50"
+                  )}
+                >
+                  <span className="text-xs font-medium">{opt.label}</span>
+                  <span className="text-[10px] text-muted-foreground mt-0.5 line-clamp-1">{opt.description}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+              {urlLabel}
             </label>
             <Input
               value={gatewayUrl}
               onChange={(e) => setGatewayUrl(e.target.value)}
-              placeholder="ws://localhost:18789"
+              placeholder={urlPlaceholder}
               className="mt-2 font-mono text-sm"
             />
           </div>
           <div>
             <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-              API Token
+              {tokenLabel}
             </label>
             <Input
               type="password"
               value={gatewayToken}
               onChange={(e) => setGatewayToken(e.target.value)}
-              placeholder="Your gateway token"
+              placeholder={runtimeType === "openclaw" ? "Your gateway token" : "sk-..."}
               className="mt-2 font-mono text-sm"
             />
           </div>
+
+          {/* Model field for openai/custom */}
+          {runtimeType !== "openclaw" && (
+            <div>
+              <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                Model
+              </label>
+              <Input
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+                placeholder="gpt-4, claude-3-opus, etc."
+                className="mt-2 font-mono text-sm"
+              />
+            </div>
+          )}
+
+          {/* Custom headers for custom runtime */}
+          {runtimeType === "custom" && (
+            <div>
+              <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                Custom Headers (JSON)
+              </label>
+              <Textarea
+                value={customHeaders}
+                onChange={(e) => setCustomHeaders(e.target.value)}
+                placeholder={'{"X-Custom-Header": "value"}'}
+                className="mt-2 font-mono text-sm min-h-[60px]"
+              />
+            </div>
+          )}
         </div>
         <DialogFooter>
           <Button

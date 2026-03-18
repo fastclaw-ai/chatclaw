@@ -23,7 +23,9 @@ export function getDb(): BetterSQLite3Database<typeof schema> {
       );
       CREATE TABLE IF NOT EXISTS companies (
         id TEXT PRIMARY KEY, name TEXT NOT NULL, logo TEXT, description TEXT,
+        runtime_type TEXT NOT NULL DEFAULT 'openclaw',
         gateway_url TEXT NOT NULL DEFAULT '', gateway_token TEXT NOT NULL DEFAULT '',
+        model TEXT, custom_headers TEXT,
         user_id TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
       );
       CREATE TABLE IF NOT EXISTS agents (

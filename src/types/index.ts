@@ -43,6 +43,10 @@ export interface ChatTarget {
   conversationId?: string;
 }
 
+// ── Runtime Types ──────────────────────────────────────────────────
+
+export type RuntimeType = "openclaw" | "openai" | "custom";
+
 // ── Database Models ─────────────────────────────────────────────────
 
 export interface Company {
@@ -51,8 +55,11 @@ export interface Company {
   name: string;
   logo?: string;
   description?: string;
+  runtimeType: RuntimeType;
   gatewayUrl: string;
   gatewayToken: string;
+  model?: string;
+  customHeaders?: string;
   createdAt: number;
   updatedAt: number;
 }

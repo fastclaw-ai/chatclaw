@@ -6,13 +6,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import { Textarea } from "@/components/ui/textarea";
 import { useStore } from "@/lib/store";
-import { testConnection } from "@/lib/gateway";
+import { testConnection } from "@/lib/runtime";
 import { cn } from "@/lib/utils";
 import {
   Building, Wifi, Wrench, Trash2, ChevronRight,
   Loader2, CheckCircle2, XCircle, WifiOff,
 } from "lucide-react";
+import type { RuntimeType } from "@/types";
 
 type Section = "general" | "gateway" | "advanced";
 
@@ -20,6 +22,12 @@ const sections: { id: Section; label: string; icon: React.ElementType }[] = [
   { id: "general", label: "General", icon: Building },
   { id: "gateway", label: "Gateway", icon: Wifi },
   { id: "advanced", label: "Advanced", icon: Wrench },
+];
+
+const runtimeOptions: { value: RuntimeType; label: string; description: string }[] = [
+  { value: "openclaw", label: "OpenClaw", description: "Full OpenClaw integration with agent sync" },
+  { value: "openai", label: "OpenAI Compatible", description: "Any OpenAI-compatible API (OpenRouter, LiteLLM, vLLM, etc.)" },
+  { value: "custom", label: "Custom", description: "Custom endpoint with configurable headers" },
 ];
 
 export function GatewaySettingsDialog({
@@ -34,8 +42,11 @@ export function GatewaySettingsDialog({
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [runtimeType, setRuntimeType] = useState<RuntimeType>("openclaw");
   const [gatewayUrl, setGatewayUrl] = useState("");
   const [gatewayToken, setGatewayToken] = useState("");
+  const [model, setModel] = useState("");
+  const [customHeaders, setCustomHeaders] = useState("");
   const [testState, setTestState] = useState<"idle" | "testing" | "success" | "error">("idle");
   const [testError, setTestError] = useState("");
   const [activeSection, setActiveSection] = useState<Section>("general");
@@ -44,8 +55,11 @@ export function GatewaySettingsDialog({
     if (company) {
       setName(company.name);
       setDescription(company.description || "");
+      setRuntimeType(company.runtimeType || "openclaw");
       setGatewayUrl(company.gatewayUrl || "");
       setGatewayToken(company.gatewayToken || "");
+      setModel(company.model || "");
+      setCustomHeaders(company.customHeaders || "");
       setActiveSection("general");
     }
   }, [company]);
@@ -54,11 +68,15 @@ export function GatewaySettingsDialog({
 
   const isConnected = state.connectionStatus === "connected";
 
+  const urlLabel = runtimeType === "openclaw" ? "Gateway URL" : "API Base URL";
+  const urlPlaceholder = runtimeType === "openclaw" ? "ws://localhost:18789" : "https://api.openai.com/v1";
+  const tokenLabel = runtimeType === "openclaw" ? "Gateway Token" : "API Key";
+
   async function handleTest() {
     if (!gatewayUrl || !gatewayToken) return;
     setTestState("testing");
     setTestError("");
-    const result = await testConnection(gatewayUrl, gatewayToken);
+    const result = await testConnection(gatewayUrl, gatewayToken, runtimeType);
     if (result.ok) {
       setTestState("success");
     } else {
@@ -74,6 +92,7 @@ export function GatewaySettingsDialog({
       if (data.found) {
         setGatewayUrl(data.url);
         setGatewayToken(data.token);
+        setRuntimeType("openclaw");
         setTestState("idle");
       }
     } catch {
@@ -86,8 +105,11 @@ export function GatewaySettingsDialog({
     await actions.updateCompany(company.id, {
       name: name.trim(),
       description: description.trim() || undefined,
+      runtimeType,
       gatewayUrl: gatewayUrl.trim(),
       gatewayToken: gatewayToken.trim(),
+      model: model.trim() || undefined,
+      customHeaders: customHeaders.trim() || undefined,
     });
     onOpenChange(false);
   }
@@ -192,6 +214,30 @@ export function GatewaySettingsDialog({
 
               {activeSection === "gateway" && (
                 <div className="space-y-5">
+                  {/* Runtime Type Selector */}
+                  <div>
+                    <Label>Runtime Type</Label>
+                    <div className="grid grid-cols-3 gap-2 mt-2">
+                      {runtimeOptions.map((opt) => (
+                        <button
+                          key={opt.value}
+                          onClick={() => { setRuntimeType(opt.value); setTestState("idle"); }}
+                          className={cn(
+                            "flex flex-col items-start rounded-lg border p-3 text-left transition-colors",
+                            runtimeType === opt.value
+                              ? "border-primary bg-primary/5"
+                              : "border-border hover:border-primary/50"
+                          )}
+                        >
+                          <span className="text-sm font-medium">{opt.label}</span>
+                          <span className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{opt.description}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <Separator />
+
                   <div className="flex items-center justify-between">
                     <Label>Connection Status</Label>
                     <div className="flex items-center gap-1.5 text-xs">
@@ -205,24 +251,51 @@ export function GatewaySettingsDialog({
                     </div>
                   </div>
                   <div>
-                    <Label>Gateway URL</Label>
+                    <Label>{urlLabel}</Label>
                     <Input
                       value={gatewayUrl}
                       onChange={(e) => { setGatewayUrl(e.target.value); setTestState("idle"); }}
-                      placeholder="ws://localhost:18789"
+                      placeholder={urlPlaceholder}
                       className="mt-2 font-mono text-sm"
                     />
                   </div>
                   <div>
-                    <Label>API Token</Label>
+                    <Label>{tokenLabel}</Label>
                     <Input
                       type="password"
                       value={gatewayToken}
                       onChange={(e) => { setGatewayToken(e.target.value); setTestState("idle"); }}
-                      placeholder="Your gateway token"
+                      placeholder={runtimeType === "openclaw" ? "Your gateway token" : "sk-..."}
                       className="mt-2 font-mono text-sm"
                     />
                   </div>
+
+                  {/* Model field for openai/custom */}
+                  {runtimeType !== "openclaw" && (
+                    <div>
+                      <Label>Model</Label>
+                      <Input
+                        value={model}
+                        onChange={(e) => setModel(e.target.value)}
+                        placeholder="gpt-4, claude-3-opus, etc."
+                        className="mt-2 font-mono text-sm"
+                      />
+                    </div>
+                  )}
+
+                  {/* Custom headers for custom runtime */}
+                  {runtimeType === "custom" && (
+                    <div>
+                      <Label>Custom Headers (JSON)</Label>
+                      <Textarea
+                        value={customHeaders}
+                        onChange={(e) => setCustomHeaders(e.target.value)}
+                        placeholder={'{"X-Custom-Header": "value"}'}
+                        className="mt-2 font-mono text-sm min-h-[80px]"
+                      />
+                    </div>
+                  )}
+
                   <div className="flex gap-2">
                     <Button
                       variant="outline"
@@ -235,9 +308,11 @@ export function GatewaySettingsDialog({
                       {testState === "error" && <XCircle className="h-4 w-4 mr-2 text-destructive" />}
                       Test Connection
                     </Button>
-                    <Button variant="outline" onClick={handleDetect}>
-                      Auto-detect
-                    </Button>
+                    {runtimeType === "openclaw" && (
+                      <Button variant="outline" onClick={handleDetect}>
+                        Auto-detect
+                      </Button>
+                    )}
                   </div>
                   {testError && (
                     <p className="text-sm text-destructive">{testError}</p>
