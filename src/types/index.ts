@@ -97,6 +97,16 @@ export interface Conversation {
   updatedAt: number;
 }
 
+export interface MessageAttachment {
+  id: string;
+  type: "image" | "file";
+  name: string;
+  mimeType: string;
+  size: number;
+  url: string;
+  base64?: string;
+}
+
 export interface Message {
   id: string;
   conversationId: string;
@@ -105,6 +115,7 @@ export interface Message {
   role: "user" | "assistant";
   agentId?: string;
   content: string;
+  attachments?: MessageAttachment[];
   createdAt: number;
 }
 

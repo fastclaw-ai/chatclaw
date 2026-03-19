@@ -45,6 +45,7 @@ import type {
   ChatTarget,
   ChatTargetType,
   StreamingPhase,
+  MessageAttachment,
 } from "@/types";
 
 // ── Session Key Helpers ────────────────────────────────────────────
@@ -279,7 +280,7 @@ interface StoreActions {
   createConversation: (targetType: ChatTargetType, targetId: string) => Promise<string>;
   deleteConversation: (id: string) => Promise<void>;
   renameConversation: (id: string, title: string) => Promise<void>;
-  sendMessage: (content: string) => Promise<void>;
+  sendMessage: (content: string, attachments?: MessageAttachment[]) => Promise<void>;
   abortStreaming: (agentId: string) => Promise<void>;
 
   syncAgents: () => Promise<void>;
@@ -657,7 +658,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     dispatch({ type: "UPDATE_CONVERSATION", id, updates: { title } });
   }, []);
 
-  const sendMessageAction = useCallback(async (content: string) => {
+  const sendMessageAction = useCallback(async (content: string, attachments?: MessageAttachment[]) => {
     const current = stateRef.current;
     const target = current.activeChatTarget;
     if (!target) return;
@@ -696,6 +697,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       targetId: target.id,
       role: "user",
       content,
+      attachments: attachments?.length ? attachments : undefined,
       createdAt: Date.now(),
     };
     await addMessage(userMsg);
@@ -712,7 +714,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         isStreaming: true,
       });
       try {
-        await client.sendMessage(sessionKey, content);
+        await client.sendMessage(sessionKey, content, undefined, attachments);
       } catch {
         dispatch({ type: "SET_STREAMING", agentId: target.id, targetType: "agent", targetId: target.id, sessionKey, isStreaming: false });
       }
@@ -764,7 +766,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
             messageToSend = `${contextParts.join("\n\n")}\n\n[New user message]\n${content}`;
           }
 
-          await client.sendMessage(sessionKey, messageToSend);
+          await client.sendMessage(sessionKey, messageToSend, undefined, attachments);
 
           // Wait for this agent's streaming to complete before sending to the next
           await Promise.race([

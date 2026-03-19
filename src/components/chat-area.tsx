@@ -12,13 +12,17 @@ import {
   Loader2,
   Wrench,
   ArrowDown,
+  Paperclip,
+  X,
+  File as FileIcon,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { MarkdownRenderer } from "@/components/markdown-renderer";
 import { cn } from "@/lib/utils";
 import { getAgentAvatarUrl, getUserAvatarUrl } from "@/lib/avatar";
 import { ConversationPanel } from "@/components/conversation-panel";
-import type { StreamingPhase } from "@/types";
+import { v4 as uuidv4 } from "uuid";
+import type { StreamingPhase, MessageAttachment } from "@/types";
 
 function StreamingIndicator({ phase }: { phase: StreamingPhase }) {
   return (
@@ -74,8 +78,10 @@ export function ChatArea() {
   const { state, actions } = useStore();
   const [input, setInput] = useState("");
   const [composing, setComposing] = useState(false);
+  const [attachments, setAttachments] = useState<MessageAttachment[]>([]);
   const [showScrollButton, setShowScrollButton] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
 
@@ -128,12 +134,69 @@ export function ChatArea() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, []);
 
+  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+
+    for (const file of Array.from(files)) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = reader.result as string;
+        const isImage = file.type.startsWith("image/");
+        const att: MessageAttachment = {
+          id: uuidv4(),
+          type: isImage ? "image" : "file",
+          name: file.name,
+          mimeType: file.type,
+          size: file.size,
+          url: dataUrl,
+        };
+        setAttachments(prev => [...prev, att]);
+      };
+      reader.readAsDataURL(file);
+    }
+
+    e.target.value = "";
+  }, []);
+
+  const removeAttachment = useCallback((id: string) => {
+    setAttachments(prev => prev.filter(a => a.id !== id));
+  }, []);
+
+  const handlePaste = useCallback((e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    for (const item of Array.from(items)) {
+      if (item.type.startsWith("image/")) {
+        const file = item.getAsFile();
+        if (!file) continue;
+        const reader = new FileReader();
+        reader.onload = () => {
+          const dataUrl = reader.result as string;
+          const att: MessageAttachment = {
+            id: uuidv4(),
+            type: "image",
+            name: `paste-${Date.now()}.png`,
+            mimeType: file.type,
+            size: file.size,
+            url: dataUrl,
+          };
+          setAttachments(prev => [...prev, att]);
+        };
+        reader.readAsDataURL(file);
+      }
+    }
+  }, []);
+
   const handleSend = useCallback(() => {
     const text = input.trim();
-    if (!text || !target) return;
+    if ((!text && attachments.length === 0) || !target) return;
     setInput("");
-    actions.sendMessage(text);
-  }, [input, target, actions]);
+    const atts = [...attachments];
+    setAttachments([]);
+    actions.sendMessage(text, atts.length > 0 ? atts : undefined);
+  }, [input, attachments, target, actions]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -280,6 +343,28 @@ export function ChatArea() {
                     <MarkdownRenderer content={msg.content} />
                   )}
                 </div>
+                {msg.attachments && msg.attachments.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {msg.attachments.filter(a => a.type === "image").map(att => (
+                      <img
+                        key={att.id}
+                        src={att.url}
+                        alt={att.name}
+                        className="max-h-64 max-w-sm rounded-lg border cursor-pointer hover:opacity-90"
+                        onClick={() => window.open(att.url, "_blank")}
+                      />
+                    ))}
+                    {msg.attachments.filter(a => a.type === "file").map(att => (
+                      <div key={att.id} className="flex items-center gap-2 rounded-lg border bg-muted/50 px-3 py-2">
+                        <FileIcon className="h-4 w-4 text-muted-foreground" />
+                        <div>
+                          <p className="text-sm font-medium">{att.name}</p>
+                          <p className="text-xs text-muted-foreground">{(att.size / 1024).toFixed(0)} KB</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Hover action bar */}
@@ -364,8 +449,60 @@ export function ChatArea() {
       </div>
 
       {/* Input area */}
-      <div className="shrink-0 px-4 pb-6 pt-0">
-        <div className="flex items-end gap-2 rounded-lg bg-muted px-4 py-2">
+      <div className="shrink-0 px-4 pb-4 pt-0">
+        {/* Attachment preview strip */}
+        {attachments.length > 0 && (
+          <div className="flex gap-2 pb-2 overflow-x-auto">
+            {attachments.map(att => (
+              <div key={att.id} className="relative group shrink-0">
+                {att.type === "image" ? (
+                  <img
+                    src={att.url}
+                    alt={att.name}
+                    className="h-16 w-16 rounded-lg object-cover border bg-muted"
+                  />
+                ) : (
+                  <div className="h-16 px-3 rounded-lg border bg-muted flex items-center gap-2">
+                    <FileIcon className="h-4 w-4 text-muted-foreground" />
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium truncate max-w-[100px]">{att.name}</p>
+                      <p className="text-[10px] text-muted-foreground">
+                        {(att.size / 1024).toFixed(0)} KB
+                      </p>
+                    </div>
+                  </div>
+                )}
+                <button
+                  onClick={() => removeAttachment(att.id)}
+                  className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-destructive text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="flex items-end gap-2 rounded-lg bg-muted px-3 py-2">
+          {/* Attachment button */}
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={!isConnected}
+            className="shrink-0 flex h-8 w-8 items-center justify-center rounded hover:bg-background/50 text-muted-foreground hover:text-foreground disabled:opacity-30 transition-colors"
+            title="Attach files"
+          >
+            <Paperclip className="h-4 w-4" />
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept="image/*,.pdf,.txt,.md,.json,.csv,.xml,.html,.js,.ts,.py,.go,.rs,.java,.cpp,.c,.sh"
+            onChange={handleFileSelect}
+            className="hidden"
+          />
+
+          {/* Textarea */}
           <textarea
             ref={textareaRef}
             value={input}
@@ -373,12 +510,15 @@ export function ChatArea() {
             onKeyDown={handleKeyDown}
             onCompositionStart={() => setComposing(true)}
             onCompositionEnd={() => setComposing(false)}
+            onPaste={handlePaste}
             placeholder={placeholder}
             disabled={!isConnected}
             rows={1}
             className="flex-1 resize-none bg-transparent text-[15px] text-foreground placeholder:text-muted-foreground outline-none disabled:opacity-50"
             style={{ maxHeight: 200, minHeight: 24 }}
           />
+
+          {/* Send/Stop button */}
           {streamingEntries.length > 0 ? (
             <button
               onClick={() => {
@@ -386,15 +526,15 @@ export function ChatArea() {
                   actions.abortStreaming(agentId);
                 }
               }}
-              className="shrink-0 flex h-8 w-8 items-center justify-center rounded bg-destructive text-white hover:bg-destructive/80 transition-colors"
+              className="shrink-0 flex h-8 w-8 items-center justify-center rounded-full bg-destructive text-white hover:bg-destructive/80 transition-colors"
             >
-              <Square className="h-4 w-4" />
+              <Square className="h-3.5 w-3.5" />
             </button>
           ) : (
             <button
               onClick={handleSend}
-              disabled={!input.trim() || !isConnected}
-              className="shrink-0 flex h-8 w-8 items-center justify-center rounded bg-primary text-primary-foreground hover:bg-primary/80 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              disabled={(!input.trim() && attachments.length === 0) || !isConnected}
+              className="shrink-0 flex h-8 w-8 items-center justify-center rounded-full bg-primary text-primary-foreground hover:bg-primary/80 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
             >
               <Send className="h-4 w-4" />
             </button>

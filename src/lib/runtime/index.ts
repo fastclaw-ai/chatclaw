@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from "uuid";
 import type { RuntimeConfig, RuntimeEventHandler, RuntimeProvider } from "./types";
+import type { MessageAttachment } from "@/types";
 
 export class RuntimeClient implements RuntimeProvider {
   private config: RuntimeConfig = { type: "openclaw", baseUrl: "", apiKey: "" };
@@ -53,7 +54,7 @@ export class RuntimeClient implements RuntimeProvider {
     return this.config.type === "openclaw";
   }
 
-  async sendMessage(sessionKey: string, message: string, agentId?: string): Promise<void> {
+  async sendMessage(sessionKey: string, message: string, agentId?: string, attachments?: MessageAttachment[]): Promise<void> {
     const resolvedAgentId = agentId || this.extractAgentId(sessionKey);
     const abortController = new AbortController();
     this.activeAbortControllers.set(sessionKey, abortController);
@@ -80,12 +81,28 @@ export class RuntimeClient implements RuntimeProvider {
         }
       }
 
+      // Build message content - use multi-part format if attachments exist
+      const imageAttachments = attachments?.filter(a => a.type === "image" && a.url) || [];
+      let messageContent: string | Array<{type: string; text?: string; image_url?: {url: string}}>;
+      if (imageAttachments.length > 0) {
+        const parts: Array<{type: string; text?: string; image_url?: {url: string}}> = [];
+        if (message) {
+          parts.push({ type: "text", text: message });
+        }
+        for (const att of imageAttachments) {
+          parts.push({ type: "image_url", image_url: { url: att.url } });
+        }
+        messageContent = parts;
+      } else {
+        messageContent = message;
+      }
+
       const res = await fetch("/api/chat", {
         method: "POST",
         headers,
         body: JSON.stringify({
           model,
-          messages: [{ role: "user", content: message }],
+          messages: [{ role: "user", content: messageContent }],
           stream: true,
         }),
         signal: abortController.signal,

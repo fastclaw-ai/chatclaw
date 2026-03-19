@@ -23,7 +23,7 @@ export interface RuntimeProvider {
   destroy(): void;
   isConnected(): boolean;
   getConfig(): RuntimeConfig;
-  sendMessage(sessionKey: string, message: string, agentId?: string): Promise<void>;
+  sendMessage(sessionKey: string, message: string, agentId?: string, attachments?: import("@/types").MessageAttachment[]): Promise<void>;
   abortChat(sessionKey: string, runId?: string): Promise<void>;
   supportsAgentSync(): boolean;
   supportsWorkspaceFiles(): boolean;
