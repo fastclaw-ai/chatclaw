@@ -6,6 +6,7 @@ import {
   ChevronDown, Sun, Moon, LogOut,
 } from "lucide-react";
 import { useAuthSession } from "@/hooks/use-auth-session";
+import { useAppConfig } from "@/hooks/use-app-config";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { getAgentAvatarUrl } from "@/lib/avatar";
@@ -29,8 +30,32 @@ import { GatewaySettingsDialog } from "@/components/dialogs/gateway-settings-dia
 import { TeamSettingsDialog } from "@/components/dialogs/team-settings-dialog";
 import type { Agent, AgentTeam } from "@/types";
 
+// multiCompany is now read from runtime config via useAppConfig()
+
+function isImageData(value: string): boolean {
+  return value.startsWith("data:image/") || value.startsWith("http://") || value.startsWith("https://");
+}
+
+function CompanyLogo({ logo, name, size = "sm" }: { logo?: string; name?: string; size?: "sm" | "md" }) {
+  const sizeClass = size === "md" ? "h-8 w-8 text-sm" : "h-6 w-6 text-xs";
+  const fallback = name?.slice(0, 2).toUpperCase() || "CC";
+
+  return (
+    <div className={`flex items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground font-semibold overflow-hidden ${sizeClass}`}>
+      {logo && isImageData(logo) ? (
+        <img src={logo} alt="" className="h-full w-full object-cover" />
+      ) : logo ? (
+        <span>{logo}</span>
+      ) : (
+        fallback
+      )}
+    </div>
+  );
+}
+
 export function AppSidebar() {
   const { session, signOut } = useAuthSession();
+  const { multiCompany } = useAppConfig();
   const { state, actions } = useStore();
   const [showCreateCompany, setShowCreateCompany] = useState(false);
   const [showCreateAgent, setShowCreateAgent] = useState(false);
@@ -47,6 +72,13 @@ export function AppSidebar() {
     setTheme(initial);
     document.documentElement.classList.toggle("dark", initial === "dark");
   }, []);
+
+  // Auto-open create company dialog when no companies exist (after data loaded)
+  useEffect(() => {
+    if (state.initialized && state.companies.length === 0) {
+      setShowCreateCompany(true);
+    }
+  }, [state.initialized, state.companies.length]);
 
   const toggleTheme = () => {
     const next = theme === "dark" ? "light" : "dark";
@@ -66,45 +98,45 @@ export function AppSidebar() {
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <SidebarMenuButton size="lg" className="data-[state=open]:bg-sidebar-accent">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground text-sm font-semibold">
-                    {activeCompany?.logo || activeCompany?.name?.slice(0, 2).toUpperCase() || "CC"}
-                  </div>
-                  <div className="flex flex-col gap-0.5 leading-none flex-1 min-w-0">
-                    <span className="font-semibold truncate">
+            {multiCompany ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <SidebarMenuButton size="lg" className="data-[state=open]:bg-sidebar-accent">
+                    <CompanyLogo logo={activeCompany?.logo} name={activeCompany?.name} size="md" />
+                    <span className="font-semibold truncate flex-1 min-w-0">
                       {activeCompany?.name || "Select Company"}
                     </span>
-                    <span className="text-xs text-muted-foreground">
-                      {isConnected ? "Connected" : "Disconnected"}
-                    </span>
-                  </div>
-                  <ChevronsUpDown className="ml-auto h-4 w-4" />
-                </SidebarMenuButton>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent className="w-[--radix-dropdown-menu-trigger-width]" align="start">
-                {state.companies.map((company) => (
-                  <DropdownMenuItem
-                    key={company.id}
-                    onClick={() => actions.selectCompany(company.id)}
-                  >
-                    <div className="flex h-6 w-6 items-center justify-center rounded bg-sidebar-primary text-sidebar-primary-foreground text-xs font-semibold mr-2">
-                      {company.logo || company.name.slice(0, 2).toUpperCase()}
-                    </div>
-                    {company.name}
-                    {company.id === state.activeCompanyId && (
-                      <Check className="ml-auto h-4 w-4" />
-                    )}
+                    <ChevronsUpDown className="ml-auto h-4 w-4" />
+                  </SidebarMenuButton>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent className="w-[--radix-dropdown-menu-trigger-width]" align="start">
+                  {state.companies.map((company) => (
+                    <DropdownMenuItem
+                      key={company.id}
+                      onClick={() => actions.selectCompany(company.id)}
+                    >
+                      <CompanyLogo logo={company.logo} name={company.name} />
+                      {company.name}
+                      {company.id === state.activeCompanyId && (
+                        <Check className="ml-auto h-4 w-4" />
+                      )}
+                    </DropdownMenuItem>
+                  ))}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => setShowCreateCompany(true)}>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Add Company
                   </DropdownMenuItem>
-                ))}
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => setShowCreateCompany(true)}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Add Company
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : (
+              <SidebarMenuButton size="lg" className="cursor-default">
+                <CompanyLogo logo={activeCompany?.logo} name={activeCompany?.name} size="md" />
+                <span className="font-semibold truncate flex-1 min-w-0">
+                  {activeCompany?.name || "ChatClaw"}
+                </span>
+              </SidebarMenuButton>
+            )}
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarHeader>
@@ -251,7 +283,15 @@ export function AppSidebar() {
       </SidebarFooter>
 
       {/* Dialogs */}
-      <CreateCompanyDialog open={showCreateCompany} onOpenChange={setShowCreateCompany} />
+      <CreateCompanyDialog
+        open={showCreateCompany}
+        onOpenChange={(open) => {
+          // Prevent closing if no companies exist
+          if (!open && state.companies.length === 0) return;
+          setShowCreateCompany(open);
+        }}
+        required={state.companies.length === 0}
+      />
       <CreateAgentDialog open={showCreateAgent} onOpenChange={setShowCreateAgent} />
       <CreateTeamDialog open={showCreateTeam} onOpenChange={setShowCreateTeam} />
       <GatewaySettingsDialog open={showSettings} onOpenChange={setShowSettings} />

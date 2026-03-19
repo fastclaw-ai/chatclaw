@@ -1,13 +1,33 @@
 import type { Company, Agent, AgentTeam, Message, Conversation } from "@/types";
 
-const backend = process.env.NEXT_PUBLIC_DB_BACKEND || "indexeddb";
-
 type DbModule = typeof import("./db-indexeddb");
 
 let impl: DbModule;
+let backendResolved = "";
+
+async function getBackend(): Promise<string> {
+  if (backendResolved !== "") return backendResolved;
+
+  // Server-side: read env directly
+  if (typeof window === "undefined") {
+    backendResolved = process.env.DB_BACKEND || "indexeddb";
+    return backendResolved;
+  }
+
+  // Client-side: fetch from config API
+  try {
+    const res = await fetch("/api/config");
+    const data = await res.json();
+    backendResolved = data.dbBackend || "indexeddb";
+  } catch {
+    backendResolved = "indexeddb";
+  }
+  return backendResolved;
+}
 
 async function getImpl(): Promise<DbModule> {
   if (!impl) {
+    const backend = await getBackend();
     if (backend === "drizzle") {
       impl = await import("./db-drizzle");
     } else {

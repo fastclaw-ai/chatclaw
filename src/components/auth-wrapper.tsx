@@ -1,10 +1,17 @@
 "use client";
 
 import { SessionProvider } from "next-auth/react";
-
-const authEnabled = process.env.NEXT_PUBLIC_AUTH_ENABLED === "true";
+import { AppConfigContext, useAppConfigLoader } from "@/hooks/use-app-config";
 
 export function AuthWrapper({ children }: { children: React.ReactNode }) {
-  if (!authEnabled) return <>{children}</>;
-  return <SessionProvider>{children}</SessionProvider>;
+  const config = useAppConfigLoader();
+
+  const content = (
+    <AppConfigContext value={config}>
+      {children}
+    </AppConfigContext>
+  );
+
+  if (!config.authEnabled) return content;
+  return <SessionProvider>{content}</SessionProvider>;
 }

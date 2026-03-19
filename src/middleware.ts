@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 export function middleware(req: NextRequest) {
-  const authEnabled = process.env.NEXT_PUBLIC_AUTH_ENABLED === "true";
+  const authEnabled = process.env.AUTH_ENABLED === "true";
   if (!authEnabled) return NextResponse.next();
 
   const { pathname } = req.nextUrl;

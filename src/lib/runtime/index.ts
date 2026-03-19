@@ -83,14 +83,31 @@ export class RuntimeClient implements RuntimeProvider {
 
       // Build message content - use multi-part format if attachments exist
       const imageAttachments = attachments?.filter(a => a.type === "image" && a.url) || [];
-      let messageContent: string | Array<{type: string; text?: string; image_url?: {url: string}}>;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let messageContent: string | Array<any>;
       if (imageAttachments.length > 0) {
-        const parts: Array<{type: string; text?: string; image_url?: {url: string}}> = [];
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const parts: Array<any> = [];
         if (message) {
           parts.push({ type: "text", text: message });
         }
         for (const att of imageAttachments) {
-          parts.push({ type: "image_url", image_url: { url: att.url } });
+          // Extract base64 data and media type from data URL
+          const match = att.url.match(/^data:([^;]+);base64,(.+)$/);
+          if (match) {
+            const [, mediaType, base64Data] = match;
+            parts.push({
+              type: "image",
+              source: {
+                type: "base64",
+                media_type: mediaType,
+                data: base64Data,
+              },
+            });
+          } else {
+            // Fallback to OpenAI image_url format for regular URLs
+            parts.push({ type: "image_url", image_url: { url: att.url } });
+          }
         }
         messageContent = parts;
       } else {
@@ -245,8 +262,12 @@ export async function testConnection(
       }),
       signal: AbortSignal.timeout(10_000),
     });
-    if (res.status === 401) {
-      return { ok: false, error: "Authentication failed" };
+    if (res.status === 401 || res.status === 403) {
+      return { ok: false, error: "Authentication failed – check your token" };
+    }
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      return { ok: false, error: `Server returned ${res.status}${text ? `: ${text.slice(0, 100)}` : ""}` };
     }
     return { ok: true };
   } catch (e) {

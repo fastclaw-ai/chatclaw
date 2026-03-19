@@ -16,10 +16,7 @@ RUN corepack enable && corepack prepare pnpm@latest --activate
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# Build-time env defaults (override at runtime)
 ENV NEXT_TELEMETRY_DISABLED=1
-ENV NEXT_PUBLIC_DB_BACKEND=drizzle
-ENV NEXT_PUBLIC_AUTH_ENABLED=false
 
 RUN pnpm build
 
@@ -50,10 +47,15 @@ COPY --from=builder /tmp/sqlite3/node_modules/file-uri-to-path ./node_modules/fi
 
 # Data directory for SQLite (mount as volume)
 RUN mkdir -p /data && chown node:node /data
-ENV CHATCLAW_DATA_DIR=/data
 
 USER node
 
 EXPOSE 3000
 
+# All configuration via .env file or environment variables at runtime:
+#   DB_BACKEND=drizzle          (drizzle | indexeddb)
+#   CHATCLAW_DATA_DIR=/data     (SQLite data directory)
+#   AUTH_ENABLED=false           (true | false)
+#   AUTH_SECRET=xxx              (required when AUTH_ENABLED=true)
+#   MULTI_COMPANY=true           (true | false)
 CMD ["node", "server.js"]

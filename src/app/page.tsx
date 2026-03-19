@@ -10,7 +10,7 @@ export default function Home() {
     <StoreProvider>
       <SidebarProvider>
         <AppSidebar />
-        <SidebarInset className="h-screen overflow-hidden">
+        <SidebarInset className="h-svh overflow-hidden">
           <ChatArea />
         </SidebarInset>
       </SidebarProvider>

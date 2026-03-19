@@ -27,16 +27,7 @@ import type { StreamingPhase, MessageAttachment } from "@/types";
 function StreamingIndicator({ phase }: { phase: StreamingPhase }) {
   return (
     <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-      {phase === "connecting" && (
-        <>
-          <span className="relative flex h-2 w-2">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-primary" />
-          </span>
-          Connecting...
-        </>
-      )}
-      {phase === "thinking" && (
+      {(phase === "connecting" || phase === "thinking") && (
         <>
           <Loader2 className="h-3 w-3 animate-spin" />
           Thinking...
@@ -104,9 +95,12 @@ export function ChatArea() {
     ([, s]) => target && s.targetType === target.type && s.targetId === target.id && s.isStreaming
   );
 
-  // Auto-scroll
+  // Auto-scroll only when user is near the bottom
+  const isNearBottomRef = React.useRef(true);
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (isNearBottomRef.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
   }, [state.messages, streamingEntries]);
 
   // Auto-focus
@@ -126,8 +120,10 @@ export function ChatArea() {
   const handleScroll = useCallback(() => {
     const el = messagesContainerRef.current;
     if (!el) return;
+    const hasOverflow = el.scrollHeight > el.clientHeight + 10;
     const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
-    setShowScrollButton(!isNearBottom);
+    isNearBottomRef.current = isNearBottom;
+    setShowScrollButton(hasOverflow && !isNearBottom);
   }, []);
 
   const scrollToBottom = useCallback(() => {
@@ -423,8 +419,7 @@ export function ChatArea() {
                     <MarkdownRenderer content={streaming.content} />
                   ) : (
                     <div className="flex items-center gap-2 py-2 text-muted-foreground text-sm">
-                      {streaming.phase === "connecting" && "Establishing connection..."}
-                      {streaming.phase === "thinking" && "Agent is thinking..."}
+                      {(streaming.phase === "connecting" || streaming.phase === "thinking") && "Agent is thinking..."}
                       {streaming.phase === "tool-calling" && "Agent is using tools..."}
                     </div>
                   )}

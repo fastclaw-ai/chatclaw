@@ -5,13 +5,8 @@ services:
       - "3000:3000"
     volumes:
       - chatclaw-data:/data
-    environment:
-      - NEXT_PUBLIC_DB_BACKEND=drizzle
-      - NEXT_PUBLIC_AUTH_ENABLED=false
-      - CHATCLAW_DATA_DIR=/data
-      - AUTH_SECRET=change-me-in-production
-      # Connect to host OpenClaw gateway
-      # - OPENCLAW_GATEWAY_URL=ws://host.docker.internal:18789
+    env_file:
+      - .env.docker
 
 volumes:
   chatclaw-data:
