@@ -250,7 +250,7 @@ function reducer(state: AppState, action: Action): AppState {
 // ── Context ─────────────────────────────────────────────────────────
 
 interface StoreActions {
-  createCompany: (name: string, gatewayUrl: string, gatewayToken: string, description?: string, opts?: { runtimeType?: string; model?: string; customHeaders?: string }) => Promise<Company>;
+  createCompany: (name: string, gatewayUrl: string, gatewayToken: string, description?: string) => Promise<Company>;
   updateCompany: (id: string, updates: Partial<Company>) => Promise<void>;
   deleteCompany: (id: string) => Promise<void>;
   selectCompany: (id: string) => Promise<void>;
@@ -452,17 +452,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   // ── Actions ───────────────────────────────────────────────────────
 
-  const createCompanyAction = useCallback(async (name: string, gatewayUrl: string, gatewayToken: string, description?: string, opts?: { runtimeType?: string; model?: string; customHeaders?: string }) => {
+  const createCompanyAction = useCallback(async (name: string, gatewayUrl: string, gatewayToken: string, description?: string) => {
     const now = Date.now();
     const company: Company = {
       id: uuidv4(),
       name,
       description,
-      runtimeType: (opts?.runtimeType as Company["runtimeType"]) || "openclaw",
+      runtimeType: "openclaw",
       gatewayUrl,
       gatewayToken,
-      model: opts?.model,
-      customHeaders: opts?.customHeaders,
       createdAt: now,
       updatedAt: now,
     };

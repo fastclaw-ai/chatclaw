@@ -10,16 +10,19 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { useStore } from "@/lib/store";
-import { cn } from "@/lib/utils";
-import type { RuntimeType } from "@/types";
 
-const runtimeOptions: { value: RuntimeType; label: string; description: string }[] = [
-  { value: "openclaw", label: "OpenClaw", description: "Full OpenClaw integration" },
-  { value: "openai", label: "OpenAI Compatible", description: "OpenRouter, LiteLLM, vLLM, etc." },
-  { value: "custom", label: "Custom", description: "Custom endpoint" },
-];
+function normalizeGatewayUrl(url: string): string {
+  let normalized = url.trim().toLowerCase();
+  normalized = normalized.replace(/^wss?:\/\//, "http://");
+  if (!normalized.startsWith("http")) normalized = "http://" + normalized;
+  normalized = normalized.replace(/\/+$/, "");
+  normalized = normalized
+    .replace("://127.0.0.1", "://localhost")
+    .replace("://0.0.0.0", "://localhost")
+    .replace("://[::1]", "://localhost");
+  return normalized;
+}
 
 export function CreateCompanyDialog({
   open,
@@ -28,18 +31,16 @@ export function CreateCompanyDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const { actions } = useStore();
+  const { state, actions } = useStore();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [runtimeType, setRuntimeType] = useState<RuntimeType>("openclaw");
   const [gatewayUrl, setGatewayUrl] = useState("");
   const [gatewayToken, setGatewayToken] = useState("");
-  const [model, setModel] = useState("");
-  const [customHeaders, setCustomHeaders] = useState("");
+  const [urlError, setUrlError] = useState("");
 
-  // Auto-detect gateway on dialog open (only for openclaw)
+  // Auto-detect gateway on dialog open
   useEffect(() => {
-    if (open && runtimeType === "openclaw" && !gatewayUrl && !gatewayToken) {
+    if (open && !gatewayUrl && !gatewayToken) {
       fetch("/api/detect-gateway")
         .then((res) => res.json())
         .then((data) => {
@@ -50,35 +51,37 @@ export function CreateCompanyDialog({
         })
         .catch(() => {});
     }
-  }, [open, runtimeType, gatewayUrl, gatewayToken]);
+  }, [open, gatewayUrl, gatewayToken]);
 
   async function handleCreate() {
     if (!name.trim()) return;
+
+    // Check for duplicate gateway URL
+    if (gatewayUrl.trim()) {
+      const normalized = normalizeGatewayUrl(gatewayUrl);
+      const existing = state.companies.find(
+        (c) => c.gatewayUrl && normalizeGatewayUrl(c.gatewayUrl) === normalized
+      );
+      if (existing) {
+        setUrlError(`This gateway is already connected as "${existing.name}"`);
+        return;
+      }
+    }
+
     const company = await actions.createCompany(
       name.trim(),
       gatewayUrl.trim(),
       gatewayToken.trim(),
       description.trim() || undefined,
-      {
-        runtimeType,
-        model: model.trim() || undefined,
-        customHeaders: customHeaders.trim() || undefined,
-      }
     );
     await actions.selectCompany(company.id);
     setName("");
     setDescription("");
-    setRuntimeType("openclaw");
     setGatewayUrl("");
     setGatewayToken("");
-    setModel("");
-    setCustomHeaders("");
+    setUrlError("");
     onOpenChange(false);
   }
-
-  const urlLabel = runtimeType === "openclaw" ? "Gateway URL" : "API Base URL";
-  const urlPlaceholder = runtimeType === "openclaw" ? "ws://localhost:18789" : "https://api.openai.com/v1";
-  const tokenLabel = runtimeType === "openclaw" ? "Gateway Token" : "API Key";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -114,83 +117,32 @@ export function CreateCompanyDialog({
             />
           </div>
 
-          {/* Runtime Type Selector */}
           <div>
             <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-              Runtime Type
-            </label>
-            <div className="grid grid-cols-3 gap-2 mt-2">
-              {runtimeOptions.map((opt) => (
-                <button
-                  key={opt.value}
-                  onClick={() => setRuntimeType(opt.value)}
-                  className={cn(
-                    "flex flex-col items-start rounded-lg border p-2.5 text-left transition-colors",
-                    runtimeType === opt.value
-                      ? "border-primary bg-primary/5"
-                      : "border-border hover:border-primary/50"
-                  )}
-                >
-                  <span className="text-xs font-medium">{opt.label}</span>
-                  <span className="text-[10px] text-muted-foreground mt-0.5 line-clamp-1">{opt.description}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-              {urlLabel}
+              Gateway URL
             </label>
             <Input
               value={gatewayUrl}
-              onChange={(e) => setGatewayUrl(e.target.value)}
-              placeholder={urlPlaceholder}
+              onChange={(e) => { setGatewayUrl(e.target.value); setUrlError(""); }}
+              placeholder="ws://localhost:18789"
               className="mt-2 font-mono text-sm"
             />
+            {urlError && (
+              <p className="text-sm text-destructive mt-1">{urlError}</p>
+            )}
           </div>
           <div>
             <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-              {tokenLabel}
+              Gateway Token
             </label>
             <Input
               type="password"
               value={gatewayToken}
               onChange={(e) => setGatewayToken(e.target.value)}
-              placeholder={runtimeType === "openclaw" ? "Your gateway token" : "sk-..."}
+              placeholder="Your gateway token"
               className="mt-2 font-mono text-sm"
             />
           </div>
-
-          {/* Model field for openai/custom */}
-          {runtimeType !== "openclaw" && (
-            <div>
-              <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                Model
-              </label>
-              <Input
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-                placeholder="gpt-4, claude-3-opus, etc."
-                className="mt-2 font-mono text-sm"
-              />
-            </div>
-          )}
-
-          {/* Custom headers for custom runtime */}
-          {runtimeType === "custom" && (
-            <div>
-              <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                Custom Headers (JSON)
-              </label>
-              <Textarea
-                value={customHeaders}
-                onChange={(e) => setCustomHeaders(e.target.value)}
-                placeholder={'{"X-Custom-Header": "value"}'}
-                className="mt-2 font-mono text-sm min-h-[60px]"
-              />
-            </div>
-          )}
         </div>
         <DialogFooter>
           <Button
