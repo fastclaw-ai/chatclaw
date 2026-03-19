@@ -105,18 +105,31 @@ export function AppSidebar() {
                   </SidebarMenuButton>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent className="w-[--radix-dropdown-menu-trigger-width]" align="start">
-                  {state.companies.map((company) => (
-                    <DropdownMenuItem
-                      key={company.id}
-                      onClick={() => actions.selectCompany(company.id)}
-                    >
-                      <CompanyLogo logo={company.logo} name={company.name} />
-                      {company.name}
-                      {company.id === state.activeCompanyId && (
-                        <Check className="ml-auto h-4 w-4" />
-                      )}
-                    </DropdownMenuItem>
-                  ))}
+                  {state.companies.map((company) => {
+                    const isActive = company.id === state.activeCompanyId;
+                    return (
+                      <DropdownMenuItem
+                        key={company.id}
+                        onClick={() => actions.selectCompany(company.id)}
+                        className="flex items-center"
+                      >
+                        <CompanyLogo logo={company.logo} name={company.name} />
+                        <span className="flex-1 truncate">{company.name}</span>
+                        {isActive && <Check className="h-4 w-4 shrink-0" />}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            actions.selectCompany(company.id);
+                            setShowSettings(true);
+                          }}
+                          className="ml-1 flex h-5 w-5 items-center justify-center rounded hover:bg-muted text-muted-foreground hover:text-foreground shrink-0"
+                          title="Settings"
+                        >
+                          <Settings className="h-3 w-3" />
+                        </button>
+                      </DropdownMenuItem>
+                    );
+                  })}
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={() => setShowCreateCompany(true)}>
                     <Plus className="h-4 w-4 mr-2" />
@@ -138,11 +151,13 @@ export function AppSidebar() {
               title="Settings"
               className="!top-1/2 !-translate-y-1/2"
             >
-              <Settings className="h-4 w-4" />
-              <span className={cn(
-                "absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full",
-                isConnected ? "bg-green-500" : "bg-red-500"
-              )} />
+              <div className="relative">
+                <Settings className="h-4 w-4" />
+                <span className={cn(
+                  "absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full",
+                  isConnected ? "bg-green-500" : "bg-red-500"
+                )} />
+              </div>
             </SidebarMenuAction>
           </SidebarMenuItem>
         </SidebarMenu>

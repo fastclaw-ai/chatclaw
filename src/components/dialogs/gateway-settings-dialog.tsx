@@ -141,23 +141,9 @@ export function GatewaySettingsDialog({
     }
   }
 
-  async function handleSave() {
-    if (!company || !name.trim()) return;
-
-    // Check for duplicate gateway URL (exclude current company)
-    if (gatewayUrl.trim()) {
-      const normalized = normalizeGatewayUrl(gatewayUrl);
-      const existing = state.companies.find(
-        (c) => c.id !== company.id && c.gatewayUrl && normalizeGatewayUrl(c.gatewayUrl) === normalized
-      );
-      if (existing) {
-        setUrlError(`This gateway is already connected as "${existing.name}"`);
-        setActiveSection("gateway");
-        return;
-      }
-    }
-
-    await actions.updateCompany(company.id, {
+  async function autoSaveCompany(updates: Record<string, string | undefined>) {
+    if (!company) return;
+    const current = {
       name: name.trim(),
       logo: logo.trim() || undefined,
       description: description.trim() || undefined,
@@ -165,24 +151,55 @@ export function GatewaySettingsDialog({
       gatewayToken: gatewayToken.trim(),
       model: model.trim() || undefined,
       channels: channels.trim() || undefined,
-    });
+    };
+    const merged = { ...current, ...updates };
+    if (!merged.name) return;
+    await actions.updateCompany(company.id, merged);
+  }
 
-    // Save openclaw.json if modified
-    if (configContent) {
-      const res = await fetch("/api/openclaw-config", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: configContent }),
-      });
-      if (!res.ok) {
-        const data = await res.json();
-        setConfigError(data.error || "Failed to save config");
-        setActiveSection("config");
+  function handleGeneralBlur() {
+    autoSaveCompany({});
+  }
+
+  function handleLogoChange(newLogo: string) {
+    setLogo(newLogo);
+    autoSaveCompany({ logo: newLogo.trim() || undefined });
+  }
+
+  function handleGatewayBlur() {
+    // Check for duplicate gateway URL
+    if (gatewayUrl.trim() && company) {
+      const normalized = normalizeGatewayUrl(gatewayUrl);
+      const existing = state.companies.find(
+        (c) => c.id !== company.id && c.gatewayUrl && normalizeGatewayUrl(c.gatewayUrl) === normalized
+      );
+      if (existing) {
+        setUrlError(`This gateway is already connected as "${existing.name}"`);
         return;
       }
     }
+    autoSaveCompany({});
+  }
 
-    onOpenChange(false);
+  async function handleConfigBlur() {
+    if (!configContent) return;
+    // Validate JSON
+    try {
+      JSON.parse(configContent);
+    } catch {
+      setConfigError("Invalid JSON");
+      return;
+    }
+    setConfigError("");
+    const res = await fetch("/api/openclaw-config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: configContent }),
+    });
+    if (!res.ok) {
+      const data = await res.json();
+      setConfigError(data.error || "Failed to save config");
+    }
   }
 
   async function handleDelete() {
@@ -263,6 +280,13 @@ export function GatewaySettingsDialog({
               <span>Company Settings</span>
               <ChevronRight className="h-3.5 w-3.5" />
               <span className="text-foreground font-medium">{sectionLabel}</span>
+              <button
+                onClick={() => onOpenChange(false)}
+                className="ml-auto rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+              >
+                <X className="h-4 w-4" />
+                <span className="sr-only">Close</span>
+              </button>
             </div>
 
             {/* Scrollable content */}
@@ -272,7 +296,7 @@ export function GatewaySettingsDialog({
                   <AvatarPicker
                     label="Logo"
                     value={logo}
-                    onChange={setLogo}
+                    onChange={handleLogoChange}
                     shape="rounded"
                     seed={company.id}
                     fallback={<span className="text-sm font-semibold">{name.slice(0, 2).toUpperCase() || "CC"}</span>}
@@ -282,6 +306,7 @@ export function GatewaySettingsDialog({
                     <Input
                       value={name}
                       onChange={(e) => setName(e.target.value)}
+                      onBlur={handleGeneralBlur}
                       className="mt-2"
                     />
                   </div>
@@ -290,6 +315,7 @@ export function GatewaySettingsDialog({
                     <Input
                       value={description}
                       onChange={(e) => setDescription(e.target.value)}
+                      onBlur={handleGeneralBlur}
                       className="mt-2"
                     />
                   </div>
@@ -315,6 +341,7 @@ export function GatewaySettingsDialog({
                     <Input
                       value={gatewayUrl}
                       onChange={(e) => { setGatewayUrl(e.target.value); setTestState("idle"); setUrlError(""); }}
+                      onBlur={handleGatewayBlur}
                       placeholder="ws://localhost:18789"
                       className="mt-2 font-mono text-sm"
                     />
@@ -328,6 +355,7 @@ export function GatewaySettingsDialog({
                       type="password"
                       value={gatewayToken}
                       onChange={(e) => { setGatewayToken(e.target.value); setTestState("idle"); }}
+                      onBlur={handleGatewayBlur}
                       placeholder="Your gateway token"
                       className="mt-2 font-mono text-sm"
                     />
@@ -371,6 +399,7 @@ export function GatewaySettingsDialog({
                     <textarea
                       value={configContent}
                       onChange={(e) => { setConfigContent(e.target.value); setConfigError(""); }}
+                      onBlur={handleConfigBlur}
                       spellCheck={false}
                       className="w-full rounded-md border bg-background px-3 py-2 font-mono text-xs leading-relaxed outline-none focus:ring-1 focus:ring-primary/30 overflow-auto whitespace-pre"
                       style={{ minHeight: 350, resize: "vertical", tabSize: 2 }}
@@ -413,15 +442,6 @@ export function GatewaySettingsDialog({
               )}
             </div>
 
-            {/* Footer */}
-            <div className="flex items-center justify-end gap-2 border-t px-6 py-3">
-              <Button variant="outline" onClick={() => onOpenChange(false)}>
-                Cancel
-              </Button>
-              <Button onClick={handleSave} disabled={!name.trim()}>
-                Save
-              </Button>
-            </div>
           </div>
         </div>
       </DialogContent>

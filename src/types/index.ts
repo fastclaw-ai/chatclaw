@@ -169,9 +169,6 @@ export interface AppState {
     phase: StreamingPhase;
   }>;
 
-  // Unread conversations
-  unreadConversations: Record<string, boolean>;
-
   // UI
   initialized: boolean;
 }

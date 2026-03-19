@@ -21,6 +21,7 @@ import {
   UserCircle,
   HeartPulse,
   Loader2,
+  X,
 } from "lucide-react";
 import { AvatarPicker } from "@/components/avatar-picker";
 import {
@@ -119,23 +120,33 @@ export function AgentSettingsDialog({
     setWorkspaceFiles((prev) => ({ ...prev, [filename]: content }));
   }
 
-  async function handleSave() {
-    await actions.updateAgent(agent.id, {
-      name: name.trim(),
-      description: description.trim(),
-      avatar: avatar || undefined,
+  async function autoSaveAgent(updates: Partial<{ name: string; description: string; avatar: string }>) {
+    const merged = {
+      name: (updates.name ?? name).trim(),
+      description: (updates.description ?? description).trim(),
+      avatar: (updates.avatar ?? avatar) || undefined,
+    };
+    if (!merged.name) return;
+    await actions.updateAgent(agent.id, merged);
+  }
+
+  function handleGeneralBlur() {
+    autoSaveAgent({});
+  }
+
+  function handleAvatarChange(newAvatar: string) {
+    setAvatar(newAvatar);
+    autoSaveAgent({ avatar: newAvatar });
+  }
+
+  async function handleWorkspaceBlur(filename: string) {
+    const content = workspaceFiles[filename];
+    if (content === undefined) return;
+    await fetch("/api/workspace", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ agentId: agent.id, file: filename, content }),
     });
-
-    // Save modified workspace files
-    for (const [filename, content] of Object.entries(workspaceFiles)) {
-      await fetch("/api/workspace", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ agentId: agent.id, file: filename, content }),
-      });
-    }
-
-    onOpenChange(false);
   }
 
   function handleDelete() {
@@ -171,6 +182,7 @@ export function AgentSettingsDialog({
             <Textarea
               value={workspaceFiles[filename] || ""}
               onChange={(e) => updateWorkspaceFile(filename, e.target.value)}
+              onBlur={() => handleWorkspaceBlur(filename)}
               className="font-mono text-sm min-h-[300px] resize-none"
             />
           )}
@@ -255,6 +267,13 @@ export function AgentSettingsDialog({
               <span className="text-foreground font-medium">
                 {sectionLabel}
               </span>
+              <button
+                onClick={() => onOpenChange(false)}
+                className="ml-auto rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+              >
+                <X className="h-4 w-4" />
+                <span className="sr-only">Close</span>
+              </button>
             </div>
 
             {/* Scrollable content */}
@@ -263,7 +282,7 @@ export function AgentSettingsDialog({
                 <div className="space-y-5">
                   <AvatarPicker
                     value={avatar}
-                    onChange={setAvatar}
+                    onChange={handleAvatarChange}
                     shape="circle"
                     seed={agent.id}
                     fallback={
@@ -279,6 +298,7 @@ export function AgentSettingsDialog({
                     <Input
                       value={name}
                       onChange={(e) => setName(e.target.value)}
+                      onBlur={handleGeneralBlur}
                       className="mt-2"
                     />
                   </div>
@@ -287,6 +307,7 @@ export function AgentSettingsDialog({
                     <Input
                       value={description}
                       onChange={(e) => setDescription(e.target.value)}
+                      onBlur={handleGeneralBlur}
                       className="mt-2"
                     />
                   </div>
@@ -462,15 +483,6 @@ export function AgentSettingsDialog({
               )}
             </div>
 
-            {/* Footer */}
-            <div className="flex items-center justify-end gap-2 border-t px-6 py-3">
-              <Button variant="outline" onClick={() => onOpenChange(false)}>
-                Cancel
-              </Button>
-              <Button onClick={handleSave} disabled={!name.trim()}>
-                Save
-              </Button>
-            </div>
           </div>
         </div>
       </DialogContent>

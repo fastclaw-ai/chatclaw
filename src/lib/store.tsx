@@ -88,9 +88,7 @@ type Action =
   | { type: "SET_ACTIVE_CONVERSATION"; id: string | null }
   | { type: "SET_STREAMING"; agentId: string; targetType: ChatTargetType; targetId: string; conversationId?: string; sessionKey: string; isStreaming: boolean }
   | { type: "SET_STREAMING_CONTENT"; agentId: string; content: string; runId: string | null; phase?: StreamingPhase; toolCalls?: ToolCallContent[] }
-  | { type: "CLEAR_STREAMING"; agentId: string }
-  | { type: "MARK_UNREAD"; conversationId: string }
-  | { type: "CLEAR_UNREAD"; conversationId: string };
+  | { type: "CLEAR_STREAMING"; agentId: string };
 
 // ── Initial State ───────────────────────────────────────────────────
 
@@ -106,7 +104,6 @@ const initialState: AppState = {
   connectionStatus: "disconnected",
   agentIdentities: {},
   streamingStates: {},
-  unreadConversations: {},
   initialized: false,
 };
 
@@ -256,13 +253,6 @@ function reducer(state: AppState, action: Action): AppState {
           Object.entries(state.streamingStates).filter(([k]) => k !== action.agentId)
         ),
       };
-
-    case "MARK_UNREAD":
-      return { ...state, unreadConversations: { ...state.unreadConversations, [action.conversationId]: true } };
-    case "CLEAR_UNREAD": {
-      const { [action.conversationId]: _, ...rest } = state.unreadConversations;
-      return { ...state, unreadConversations: rest };
-    }
 
     default:
       return state;
@@ -657,7 +647,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const selectConversationAction = useCallback(async (id: string) => {
     dispatch({ type: "SET_ACTIVE_CONVERSATION", id });
-    dispatch({ type: "CLEAR_UNREAD", conversationId: id });
     const msgs = await getMessagesByConversation(id);
     dispatch({ type: "SET_MESSAGES", messages: msgs });
   }, []);

@@ -2,13 +2,11 @@
 
 import React, { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
 import { AvatarPicker } from "@/components/avatar-picker";
 import { cn } from "@/lib/utils";
-import { User, Palette, ChevronRight, Monitor, Sun, Moon } from "lucide-react";
+import { User, Palette, ChevronRight, Monitor, Sun, Moon, X } from "lucide-react";
 
 export interface UserProfile {
   name: string;
@@ -89,12 +87,26 @@ export function UserProfileDialog({
     }
   }, [open]);
 
-  function handleSave() {
-    const profile = { name: name.trim(), avatar };
+  function saveProfile(updates: Partial<{ name: string; avatar: string }>) {
+    const profile = { name: (updates.name ?? name).trim(), avatar: updates.avatar ?? avatar };
     saveUserProfile(profile);
-    applyTheme(themeMode);
     onSave?.(profile, themeMode);
-    onOpenChange(false);
+  }
+
+  function handleAvatarChange(newAvatar: string) {
+    setAvatar(newAvatar);
+    saveProfile({ avatar: newAvatar });
+  }
+
+  function handleNameBlur() {
+    saveProfile({});
+  }
+
+  function handleThemeSelect(mode: ThemeMode) {
+    setThemeMode(mode);
+    applyTheme(mode);
+    const profile = { name: name.trim(), avatar };
+    onSave?.(profile, mode);
   }
 
   const sectionLabel = sections.find((s) => s.id === activeSection)?.label ?? "Profile";
@@ -155,6 +167,13 @@ export function UserProfileDialog({
               <span>Settings</span>
               <ChevronRight className="h-3.5 w-3.5" />
               <span className="text-foreground font-medium">{sectionLabel}</span>
+              <button
+                onClick={() => onOpenChange(false)}
+                className="ml-auto rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+              >
+                <X className="h-4 w-4" />
+                <span className="sr-only">Close</span>
+              </button>
             </div>
 
             {/* Scrollable content */}
@@ -163,7 +182,7 @@ export function UserProfileDialog({
                 <div className="space-y-5">
                   <AvatarPicker
                     value={avatar}
-                    onChange={setAvatar}
+                    onChange={handleAvatarChange}
                     shape="circle"
                     seed="user"
                     fallback={
@@ -177,6 +196,7 @@ export function UserProfileDialog({
                     <Input
                       value={name}
                       onChange={(e) => setName(e.target.value)}
+                      onBlur={handleNameBlur}
                       placeholder="Your display name"
                       className="mt-2"
                     />
@@ -198,16 +218,16 @@ export function UserProfileDialog({
                         return (
                           <button
                             key={opt.value}
-                            onClick={() => setThemeMode(opt.value)}
+                            onClick={() => handleThemeSelect(opt.value)}
                             className={cn(
-                              "flex flex-col items-center gap-2 rounded-lg border-2 p-4 transition-colors",
+                              "flex flex-col items-center gap-2 rounded-lg border p-4 transition-colors",
                               isSelected
-                                ? "border-primary bg-primary/5"
-                                : "border-border hover:border-muted-foreground/30"
+                                ? "border-foreground/30 bg-muted"
+                                : "border-border hover:border-foreground/20"
                             )}
                           >
-                            <Icon className={cn("h-6 w-6", isSelected ? "text-primary" : "text-muted-foreground")} />
-                            <span className={cn("text-sm font-medium", isSelected ? "text-primary" : "text-muted-foreground")}>{opt.label}</span>
+                            <Icon className={cn("h-6 w-6", isSelected ? "text-foreground" : "text-muted-foreground")} />
+                            <span className={cn("text-sm font-medium", isSelected ? "text-foreground" : "text-muted-foreground")}>{opt.label}</span>
                           </button>
                         );
                       })}
@@ -217,15 +237,6 @@ export function UserProfileDialog({
               )}
             </div>
 
-            {/* Footer */}
-            <div className="flex items-center justify-end gap-2 border-t px-6 py-3">
-              <Button variant="outline" onClick={() => onOpenChange(false)}>
-                Cancel
-              </Button>
-              <Button onClick={handleSave}>
-                Save
-              </Button>
-            </div>
           </div>
         </div>
       </DialogContent>

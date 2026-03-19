@@ -4,7 +4,7 @@ import React, { useCallback } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
-import { Check, Copy } from "lucide-react";
+import { Check, Copy, Download, FileIcon } from "lucide-react";
 
 function CopyButton({ code }: { code: string }) {
   const [copied, setCopied] = React.useState(false);
@@ -38,53 +38,177 @@ function extractText(children: React.ReactNode): string {
 }
 
 const IMAGE_EXT_RE = /\.(?:png|jpg|jpeg|gif|webp|svg)$/i;
+const AUDIO_EXTS = ["mp3", "wav", "ogg", "flac", "m4a"];
+const VIDEO_EXTS = ["mp4", "webm"];
+const IMAGE_EXTS = ["png", "jpg", "jpeg", "gif", "webp", "svg"];
+const ALL_MEDIA_EXTS = [...IMAGE_EXTS, ...AUDIO_EXTS, ...VIDEO_EXTS];
+const FILE_PATH_RE = /`(\/[^`\n]+\.[a-zA-Z0-9]+)`|(?:^|[\s—])(\/(?:tmp|home|Users|var|opt)\/[^\s"'<>)]+\.[a-zA-Z0-9]+)/gm;
+
+function getFileExt(path: string): string {
+  const match = path.match(/\.([a-zA-Z0-9]+)$/);
+  return match ? match[1].toLowerCase() : "";
+}
+
+// Marker format: %%MEDIA|type|name|url%%
+function fileToMarker(filePath: string): string {
+  const ext = getFileExt(filePath);
+  const url = `/api/files?path=${encodeURIComponent(filePath)}`;
+  const name = filePath.split("/").pop() || filePath;
+
+  if (IMAGE_EXTS.includes(ext)) {
+    return `\n![${name}](${url})\n`;
+  }
+  if (AUDIO_EXTS.includes(ext)) {
+    return `\n%%MEDIA|audio|${name}|${url}%%\n`;
+  }
+  if (VIDEO_EXTS.includes(ext)) {
+    return `\n%%MEDIA|video|${name}|${url}%%\n`;
+  }
+  return `\n%%MEDIA|file|${name}|${url}%%\n`;
+}
+
+function AudioPlayer({ name, src }: { name: string; src: string }) {
+  return (
+    <div className="my-2 rounded-lg border bg-muted/30 p-3">
+      <div className="flex items-center gap-2 mb-2">
+        <span className="text-sm font-medium">{name}</span>
+        <a href={src} download={name} className="ml-auto text-muted-foreground hover:text-foreground">
+          <Download className="h-4 w-4" />
+        </a>
+      </div>
+      <audio controls className="w-full h-8" preload="metadata">
+        <source src={src} />
+      </audio>
+    </div>
+  );
+}
+
+function VideoPlayer({ name, src }: { name: string; src: string }) {
+  return (
+    <div className="my-2 rounded-lg border overflow-hidden">
+      <video controls className="w-full max-h-80" preload="metadata">
+        <source src={src} />
+      </video>
+      <div className="flex items-center gap-2 px-3 py-1.5 bg-muted/30">
+        <span className="text-xs text-muted-foreground truncate flex-1">{name}</span>
+        <a href={src} download={name} className="text-muted-foreground hover:text-foreground">
+          <Download className="h-3.5 w-3.5" />
+        </a>
+      </div>
+    </div>
+  );
+}
+
+function FileDownload({ name, src }: { name: string; src: string }) {
+  return (
+    <a
+      href={src}
+      download={name}
+      className="my-2 flex items-center gap-3 rounded-lg border bg-muted/30 px-3 py-2.5 hover:bg-muted/50 transition-colors"
+    >
+      <FileIcon className="h-5 w-5 text-muted-foreground shrink-0" />
+      <span className="text-sm font-medium truncate flex-1">{name}</span>
+      <Download className="h-4 w-4 text-muted-foreground shrink-0" />
+    </a>
+  );
+}
 
 /**
- * Preprocess content to convert image file references to rendered images.
+ * Preprocess content to convert file references to rendered media.
  * Handles:
  * - Backtick-wrapped filenames: `filename.png`
- * - Full workspace paths: ~/.openclaw/workspace-xxx/filename.png
- * - Bare filenames: filename.png
+ * - Absolute paths: /tmp/filename.mp3, /Users/.../file.pdf
+ * - Workspace paths: ~/.openclaw/workspace-xxx/filename.png
  */
 function preprocessContent(content: string, agentId?: string): string {
-  if (!agentId) return content;
-
   let result = content;
 
-  // 1. Full workspace paths (with or without backticks):  ~/.openclaw/workspace-xxx/filename.png
-  result = result.replace(
-    /`?~?\/?\.openclaw\/workspace[^/]*\/([\w][\w\-. ]*\.(?:png|jpg|jpeg|gif|webp|svg))`?/gi,
-    (_match, filename) => {
-      const url = `/api/workspace/files?agentId=${encodeURIComponent(agentId)}&file=${encodeURIComponent(filename)}`;
-      return `\n![${filename}](${url})\n`;
-    }
-  );
+  // 1. Workspace paths (with or without backticks)
+  if (agentId) {
+    result = result.replace(
+      /`?~?\/?\.openclaw\/workspace[^/]*\/([\w][\w\-. ]*\.(?:png|jpg|jpeg|gif|webp|svg))`?/gi,
+      (_match, filename) => {
+        const url = `/api/workspace/files?agentId=${encodeURIComponent(agentId)}&file=${encodeURIComponent(filename)}`;
+        return `\n![${filename}](${url})\n`;
+      }
+    );
+  }
 
-  // 2. Backtick-wrapped image filenames: `filename.png`
-  result = result.replace(
-    /`([\w][\w\-. ]*\.(?:png|jpg|jpeg|gif|webp|svg))`/gi,
-    (_match, filename) => {
-      const url = `/api/workspace/files?agentId=${encodeURIComponent(agentId)}&file=${encodeURIComponent(filename)}`;
-      return `![${filename}](${url})`;
-    }
-  );
+  // 2. Absolute file paths (backtick-wrapped or bare)
+  result = result.replace(FILE_PATH_RE, (match, backtickPath, barePath) => {
+    const filePath = backtickPath || barePath;
+    if (!filePath) return match;
+    const prefix = match.startsWith("`") || match.startsWith("/") ? "" : match[0];
+    return prefix + fileToMarker(filePath.trim());
+  });
 
-  // 3. Bare image filenames not already in markdown image syntax
-  //    Match filenames preceded by whitespace/start and followed by whitespace/end/punctuation
-  result = result.replace(
-    /(?<!\(|!?\[.*?\]\()(?:^|(?<=\s))([\w][\w\-]*\.(?:png|jpg|jpeg|gif|webp|svg))(?=\s|$|[),;:。，])/gim,
-    (_match, filename) => {
-      const url = `/api/workspace/files?agentId=${encodeURIComponent(agentId)}&file=${encodeURIComponent(filename)}`;
-      return `![${filename}](${url})`;
-    }
-  );
+  // 3. Backtick-wrapped image filenames in workspace (agent context only)
+  if (agentId) {
+    result = result.replace(
+      /`([\w][\w\-. ]*\.(?:png|jpg|jpeg|gif|webp|svg))`/gi,
+      (_match, filename) => {
+        const url = `/api/workspace/files?agentId=${encodeURIComponent(agentId)}&file=${encodeURIComponent(filename)}`;
+        return `![${filename}](${url})`;
+      }
+    );
+
+    // 4. Bare image filenames
+    result = result.replace(
+      /(?<!\(|!?\[.*?\]\()(?:^|(?<=\s))([\w][\w\-]*\.(?:png|jpg|jpeg|gif|webp|svg))(?=\s|$|[),;:。，])/gim,
+      (_match, filename) => {
+        const url = `/api/workspace/files?agentId=${encodeURIComponent(agentId)}&file=${encodeURIComponent(filename)}`;
+        return `![${filename}](${url})`;
+      }
+    );
+  }
 
   return result;
 }
 
+const MEDIA_MARKER_RE = /%%MEDIA\|(audio|video|file)\|([^|]+)\|((?:[^%]|%(?!%))*)%%/g;
+
 export function MarkdownRenderer({ content, agentId }: { content: string; agentId?: string }) {
   const processed = preprocessContent(content, agentId);
 
+  // Split content by media markers and render each segment
+  const parts: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  const re = new RegExp(MEDIA_MARKER_RE.source, "g");
+
+  while ((match = re.exec(processed)) !== null) {
+    // Render markdown text before this marker
+    const textBefore = processed.slice(lastIndex, match.index).trim();
+    if (textBefore) {
+      parts.push(<MarkdownSegment key={`md-${lastIndex}`} content={textBefore} />);
+    }
+    // Render the media component
+    const [, type, name, src] = match;
+    if (type === "audio") {
+      parts.push(<AudioPlayer key={`media-${match.index}`} name={name} src={src} />);
+    } else if (type === "video") {
+      parts.push(<VideoPlayer key={`media-${match.index}`} name={name} src={src} />);
+    } else {
+      parts.push(<FileDownload key={`media-${match.index}`} name={name} src={src} />);
+    }
+    lastIndex = match.index + match[0].length;
+  }
+
+  // Remaining text after last marker
+  const remaining = processed.slice(lastIndex).trim();
+  if (remaining) {
+    parts.push(<MarkdownSegment key={`md-${lastIndex}`} content={remaining} />);
+  }
+
+  // If no media markers found, render as single markdown
+  if (parts.length === 0) {
+    return <MarkdownSegment content={processed} />;
+  }
+
+  return <>{parts}</>;
+}
+
+function MarkdownSegment({ content }: { content: string }) {
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
@@ -208,7 +332,7 @@ export function MarkdownRenderer({ content, agentId }: { content: string; agentI
         },
       }}
     >
-      {processed}
+      {content}
     </ReactMarkdown>
   );
 }

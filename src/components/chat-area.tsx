@@ -8,6 +8,7 @@ import {
   Users,
   MessageCircle,
   Copy,
+  Check,
   RotateCcw,
   Loader2,
   Wrench,
@@ -145,47 +146,20 @@ function ToolCallBlock({ toolCall }: { toolCall: ToolCallContent }) {
   );
 }
 
-/**
- * Displays workspace images that were generated around the time of a message.
- * Checks the agent's workspace for images created within a time window.
- */
-function WorkspaceImages({ agentId, messageTime }: { agentId: string; messageTime: number }) {
-  const [images, setImages] = useState<{ name: string; url: string; createdAt: number }[]>([]);
-
-  useEffect(() => {
-    if (!agentId) return;
-    // Look for images created within 5 minutes around the message
-    const since = messageTime - 5 * 60 * 1000;
-    const until = messageTime + 60 * 1000;
-
-    fetch(`/api/workspace/images?agentId=${encodeURIComponent(agentId)}&since=${since}`)
-      .then(r => r.json())
-      .then(data => {
-        if (data.images) {
-          // Filter to images created in the time window
-          const filtered = data.images.filter(
-            (img: { createdAt: number }) => img.createdAt >= since && img.createdAt <= until
-          );
-          setImages(filtered);
-        }
-      })
-      .catch(() => {});
-  }, [agentId, messageTime]);
-
-  if (images.length === 0) return null;
-
+function CopyMessageButton({ content }: { content: string }) {
+  const [copied, setCopied] = useState(false);
   return (
-    <div className="flex flex-wrap gap-2 mt-2">
-      {images.map(img => (
-        <img
-          key={img.name}
-          src={img.url}
-          alt={img.name}
-          className="max-h-64 max-w-sm rounded-lg border cursor-pointer hover:opacity-90"
-          onClick={() => window.open(img.url, "_blank")}
-        />
-      ))}
-    </div>
+    <button
+      onClick={() => {
+        navigator.clipboard.writeText(content);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      }}
+      className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
+      title="Copy"
+    >
+      {copied ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
+    </button>
   );
 }
 
@@ -536,9 +510,6 @@ export function ChatArea() {
                     <MarkdownRenderer content={msg.content} agentId={msg.agentId} />
                   )}
                 </div>
-                {!isUser && msg.agentId && (
-                  <WorkspaceImages agentId={msg.agentId} messageTime={msg.createdAt} />
-                )}
                 {msg.attachments && msg.attachments.length > 0 && (
                   <div className="flex flex-wrap gap-2 mt-2">
                     {msg.attachments.filter(a => a.type === "image").map(att => (
@@ -565,13 +536,7 @@ export function ChatArea() {
 
               {/* Hover action bar */}
               <div className="absolute right-2 top-0 hidden group-hover:flex items-center gap-0.5 bg-background border rounded-md shadow-sm p-0.5">
-                <button
-                  onClick={() => navigator.clipboard.writeText(msg.content)}
-                  className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
-                  title="Copy"
-                >
-                  <Copy className="h-3.5 w-3.5" />
-                </button>
+                <CopyMessageButton content={msg.content} />
                 {msg.role === "assistant" && (
                   <button
                     onClick={() => {

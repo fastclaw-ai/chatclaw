@@ -20,7 +20,7 @@ import { useStore } from "@/lib/store";
 import { getAgentAvatarUrl, isEmojiAvatar } from "@/lib/avatar";
 import { cn } from "@/lib/utils";
 import {
-  Users, UserPlus, Wrench, Trash2, ChevronRight, Check,
+  Users, UserPlus, Wrench, Trash2, ChevronRight, Check, X,
 } from "lucide-react";
 import { AvatarPicker } from "@/components/avatar-picker";
 import type { AgentTeam } from "@/types";
@@ -60,21 +60,41 @@ export function TeamSettingsDialog({
     setActiveSection("general");
   }, [team]);
 
-  function toggleAgent(id: string) {
-    setSelectedAgentIds((prev) =>
-      prev.includes(id) ? prev.filter((a) => a !== id) : [...prev, id]
-    );
+  async function autoSaveTeam(updates: Partial<{ name: string; avatar: string; description: string; agentIds: string[] }>) {
+    const merged = {
+      name: (updates.name ?? name).trim(),
+      avatar: (updates.avatar ?? avatar) || undefined,
+      description: (updates.description ?? description).trim() || undefined,
+      agentIds: updates.agentIds ?? selectedAgentIds,
+    };
+    if (!merged.name || merged.agentIds.length === 0) return;
+    await actions.updateTeam(team.id, merged);
   }
 
-  async function handleSave() {
-    if (!name.trim() || selectedAgentIds.length === 0) return;
-    await actions.updateTeam(team.id, {
-      name: name.trim(),
-      avatar: avatar || undefined,
-      description: description.trim() || undefined,
-      agentIds: selectedAgentIds,
+  function toggleAgent(id: string) {
+    setSelectedAgentIds((prev) => {
+      const next = prev.includes(id) ? prev.filter((a) => a !== id) : [...prev, id];
+      // Auto-save with new agent list
+      const merged = {
+        name: name.trim(),
+        avatar: avatar || undefined,
+        description: description.trim() || undefined,
+        agentIds: next,
+      };
+      if (merged.name && next.length > 0) {
+        actions.updateTeam(team.id, merged);
+      }
+      return next;
     });
-    onOpenChange(false);
+  }
+
+  function handleGeneralBlur() {
+    autoSaveTeam({});
+  }
+
+  function handleAvatarChange(newAvatar: string) {
+    setAvatar(newAvatar);
+    autoSaveTeam({ avatar: newAvatar });
   }
 
   function handleDelete() {
@@ -161,6 +181,13 @@ export function TeamSettingsDialog({
               <span>Team Settings</span>
               <ChevronRight className="h-3.5 w-3.5" />
               <span className="text-foreground font-medium">{sectionLabel}</span>
+              <button
+                onClick={() => onOpenChange(false)}
+                className="ml-auto rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+              >
+                <X className="h-4 w-4" />
+                <span className="sr-only">Close</span>
+              </button>
             </div>
 
             {/* Scrollable content */}
@@ -169,7 +196,7 @@ export function TeamSettingsDialog({
                 <div className="space-y-5">
                   <AvatarPicker
                     value={avatar}
-                    onChange={setAvatar}
+                    onChange={handleAvatarChange}
                     shape="rounded"
                     seed={team.id}
                     fallback={
@@ -183,6 +210,7 @@ export function TeamSettingsDialog({
                     <Input
                       value={name}
                       onChange={(e) => setName(e.target.value)}
+                      onBlur={handleGeneralBlur}
                       className="mt-2"
                     />
                   </div>
@@ -191,6 +219,7 @@ export function TeamSettingsDialog({
                     <Input
                       value={description}
                       onChange={(e) => setDescription(e.target.value)}
+                      onBlur={handleGeneralBlur}
                       placeholder="What does this team do?"
                       className="mt-2"
                     />
@@ -270,15 +299,6 @@ export function TeamSettingsDialog({
               )}
             </div>
 
-            {/* Footer */}
-            <div className="flex items-center justify-end gap-2 border-t px-6 py-3">
-              <Button variant="outline" onClick={() => onOpenChange(false)}>
-                Cancel
-              </Button>
-              <Button onClick={handleSave} disabled={!name.trim() || selectedAgentIds.length === 0}>
-                Save
-              </Button>
-            </div>
           </div>
         </div>
       </DialogContent>

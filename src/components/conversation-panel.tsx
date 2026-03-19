@@ -120,9 +120,6 @@ export function ConversationPanel() {
                   <>
                     <MessageCircle className="h-3.5 w-3.5 shrink-0 opacity-50" />
                     <span className="truncate flex-1">{conv.title}</span>
-                    {state.unreadConversations[conv.id] && !isActive && (
-                      <span className="h-2 w-2 rounded-full bg-primary shrink-0" />
-                    )}
                     <span className="text-[10px] text-muted-foreground shrink-0 hidden group-hover:hidden">
                       {time}
                     </span>

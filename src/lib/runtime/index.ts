@@ -133,8 +133,44 @@ export class RuntimeClient implements RuntimeProvider {
       const activeToolCalls = new Map<number, { id: string; name: string; arguments: string }>();
       let currentToolCalls: ToolCallContent[] = [];
 
+      const IDLE_TIMEOUT = 3000; // 3s idle = treat as message boundary
+
       while (true) {
-        const { done, value } = await reader.read();
+        // Race between reading data and idle timeout
+        const readPromise = reader.read();
+        let result: ReadableStreamReadResult<Uint8Array>;
+
+        if (accumulated) {
+          const timeout = new Promise<"idle">((resolve) => setTimeout(() => resolve("idle"), IDLE_TIMEOUT));
+          const winner = await Promise.race([readPromise, timeout]);
+
+          if (winner === "idle") {
+            // No data for IDLE_TIMEOUT ms — save accumulated content as a completed message
+            this.handlers.onChatEvent?.({
+              runId,
+              sessionKey,
+              state: "message_done",
+              message: {
+                role: "assistant",
+                content: [{ type: "text", text: accumulated }],
+                timestamp: Date.now(),
+              },
+              toolCalls: currentToolCalls.length > 0 ? currentToolCalls : undefined,
+            });
+            accumulated = "";
+            currentToolCalls = [];
+            activeToolCalls.clear();
+            runId = uuidv4();
+            // Now wait for the actual read to complete
+            result = await readPromise;
+          } else {
+            result = winner as ReadableStreamReadResult<Uint8Array>;
+          }
+        } else {
+          result = await readPromise;
+        }
+
+        const { done, value } = result;
         if (done) break;
 
         buffer += decoder.decode(value, { stream: true });
