@@ -2,12 +2,23 @@
 
 export type StreamingPhase = "connecting" | "thinking" | "tool-calling" | "responding";
 
-export type ChatState = "delta" | "final" | "error" | "aborted";
+export type ChatState = "delta" | "message_done" | "final" | "error" | "aborted";
 
-export interface ChatMessageContent {
+export interface ChatMessageTextContent {
   type: "text";
   text: string;
 }
+
+export interface ToolCallContent {
+  type: "tool_call";
+  id: string;
+  name: string;
+  arguments: string;
+  status: "calling" | "completed" | "error";
+  result?: string;
+}
+
+export type ChatMessageContent = ChatMessageTextContent | ToolCallContent;
 
 export interface ChatMessage {
   role: "user" | "assistant";
@@ -21,6 +32,8 @@ export interface ChatEventPayload {
   state: ChatState;
   message: ChatMessage;
   error?: string;
+  toolCalls?: ToolCallContent[];
+  phase?: StreamingPhase;
 }
 
 // ── Agent Identity (from gateway) ──────────────────────────────────
@@ -61,6 +74,7 @@ export interface Company {
   gatewayUrl: string;
   gatewayToken: string;
   model?: string;
+  channels?: string;
   customHeaders?: string;
   createdAt: number;
   updatedAt: number;
@@ -82,6 +96,7 @@ export interface AgentTeam {
   id: string;
   companyId: string;
   name: string;
+  avatar?: string;
   description?: string;
   agentIds: string[];
   createdAt: number;
@@ -116,6 +131,7 @@ export interface Message {
   agentId?: string;
   content: string;
   attachments?: MessageAttachment[];
+  toolCalls?: ToolCallContent[];
   createdAt: number;
 }
 
@@ -144,12 +160,17 @@ export interface AppState {
   streamingStates: Record<string, {
     isStreaming: boolean;
     content: string;
+    toolCalls: ToolCallContent[];
     runId: string | null;
     targetType: ChatTargetType;
     targetId: string;
+    conversationId: string;
     sessionKey: string;
     phase: StreamingPhase;
   }>;
+
+  // Unread conversations
+  unreadConversations: Record<string, boolean>;
 
   // UI
   initialized: boolean;

@@ -18,6 +18,7 @@ export const companies = sqliteTable("companies", {
   gatewayUrl: text("gateway_url").notNull().default(""),
   gatewayToken: text("gateway_token").notNull().default(""),
   model: text("model"),
+  channels: text("channels"),
   customHeaders: text("custom_headers"),
   userId: text("user_id"),
   createdAt: integer("created_at").notNull(),
@@ -38,6 +39,7 @@ export const teams = sqliteTable("teams", {
   id: text("id").primaryKey(),
   companyId: text("company_id").notNull(),
   name: text("name").notNull(),
+  avatar: text("avatar"),
   description: text("description"),
   agentIds: text("agent_ids").notNull().default("[]"),
   createdAt: integer("created_at").notNull(),
@@ -51,6 +53,8 @@ export const messages = sqliteTable("messages", {
   role: text("role").notNull(),
   agentId: text("agent_id"),
   content: text("content").notNull().default(""),
+  attachments: text("attachments"),
+  toolCalls: text("tool_calls"),
   createdAt: integer("created_at").notNull(),
 });
 

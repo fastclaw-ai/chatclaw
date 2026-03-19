@@ -1,17 +1,28 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { useStore } from "@/lib/store";
-import { getAgentAvatarUrl } from "@/lib/avatar";
+import { getAgentAvatarUrl, isEmojiAvatar } from "@/lib/avatar";
 import { cn } from "@/lib/utils";
 import {
   Users, UserPlus, Wrench, Trash2, ChevronRight, Check,
 } from "lucide-react";
+import { AvatarPicker } from "@/components/avatar-picker";
 import type { AgentTeam } from "@/types";
 
 type Section = "general" | "members" | "advanced";
@@ -33,14 +44,17 @@ export function TeamSettingsDialog({
 }) {
   const { state, actions } = useStore();
   const [name, setName] = useState(team.name);
+  const [avatar, setAvatar] = useState(team.avatar || "");
   const [description, setDescription] = useState(team.description || "");
   const [selectedAgentIds, setSelectedAgentIds] = useState<string[]>(team.agentIds);
   const [activeSection, setActiveSection] = useState<Section>("general");
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const companyAgents = state.agents.filter((a) => a.companyId === team.companyId);
 
   useEffect(() => {
     setName(team.name);
+    setAvatar(team.avatar || "");
     setDescription(team.description || "");
     setSelectedAgentIds(team.agentIds);
     setActiveSection("general");
@@ -56,14 +70,20 @@ export function TeamSettingsDialog({
     if (!name.trim() || selectedAgentIds.length === 0) return;
     await actions.updateTeam(team.id, {
       name: name.trim(),
+      avatar: avatar || undefined,
       description: description.trim() || undefined,
       agentIds: selectedAgentIds,
     });
     onOpenChange(false);
   }
 
-  async function handleDelete() {
+  function handleDelete() {
+    setShowDeleteConfirm(true);
+  }
+
+  async function confirmDelete() {
     await actions.deleteTeam(team.id);
+    setShowDeleteConfirm(false);
     onOpenChange(false);
   }
 
@@ -72,13 +92,22 @@ export function TeamSettingsDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-3xl p-0 gap-0 overflow-hidden [&>button]:hidden">
+        <DialogTitle className="sr-only">Team Settings</DialogTitle>
         <div className="flex h-[550px]">
           {/* LEFT - Sidebar */}
           <div className="w-[200px] border-r bg-muted/40 flex flex-col">
             {/* Team icon + name */}
-            <div className="flex items-center gap-3 px-4 py-4">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-                <Users className="h-5 w-5" />
+            <div className="flex items-center gap-3 px-4 py-3 border-b">
+              <div className="shrink-0">
+                {isEmojiAvatar(avatar) ? (
+                  <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted text-lg">{avatar}</span>
+                ) : avatar && (avatar.startsWith("data:") || avatar.startsWith("http")) ? (
+                  <img src={avatar} alt={team.name} className="h-8 w-8 rounded-lg bg-muted object-cover" />
+                ) : (
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+                    <Users className="h-4 w-4" />
+                  </div>
+                )}
               </div>
               <div className="min-w-0">
                 <p className="text-sm font-semibold truncate">{team.name}</p>
@@ -87,8 +116,6 @@ export function TeamSettingsDialog({
                 </p>
               </div>
             </div>
-
-            <Separator />
 
             {/* Navigation */}
             <nav className="flex flex-col gap-1 p-2 flex-1">
@@ -130,7 +157,7 @@ export function TeamSettingsDialog({
           {/* RIGHT - Content */}
           <div className="flex-1 flex flex-col min-w-0">
             {/* Breadcrumb header */}
-            <div className="flex items-center gap-1.5 px-6 py-4 text-sm text-muted-foreground border-b">
+            <div className="flex items-center gap-1.5 px-6 py-3 text-sm text-muted-foreground border-b">
               <span>Team Settings</span>
               <ChevronRight className="h-3.5 w-3.5" />
               <span className="text-foreground font-medium">{sectionLabel}</span>
@@ -140,6 +167,17 @@ export function TeamSettingsDialog({
             <div className="flex-1 overflow-y-auto px-6 py-5">
               {activeSection === "general" && (
                 <div className="space-y-5">
+                  <AvatarPicker
+                    value={avatar}
+                    onChange={setAvatar}
+                    shape="rounded"
+                    seed={team.id}
+                    fallback={
+                      <div className="flex h-full w-full items-center justify-center bg-primary text-primary-foreground">
+                        <Users className="h-6 w-6" />
+                      </div>
+                    }
+                  />
                   <div>
                     <Label>Team Name</Label>
                     <Input
@@ -182,13 +220,16 @@ export function TeamSettingsDialog({
                               : "hover:bg-accent/50 text-muted-foreground"
                           )}
                         >
-                          <img
-                            src={getAgentAvatarUrl(agent.id)}
-                            alt={agent.name}
-                            className="h-6 w-6 rounded-full bg-muted"
-                          />
+                          {isEmojiAvatar(agent.avatar) ? (
+                            <span className="h-6 w-6 flex items-center justify-center text-sm">{agent.avatar}</span>
+                          ) : (
+                            <img
+                              src={agent.avatar || getAgentAvatarUrl(agent.id)}
+                              alt={agent.name}
+                              className="h-6 w-6 rounded-full bg-muted object-cover"
+                            />
+                          )}
                           <span className="text-sm flex-1 text-left">{agent.name}</span>
-                          <span className="text-[11px] text-muted-foreground">{agent.specialty}</span>
                           {selected && <Check className="h-4 w-4 text-green-600" />}
                         </button>
                       );
@@ -241,6 +282,23 @@ export function TeamSettingsDialog({
           </div>
         </div>
       </DialogContent>
+
+      <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Team</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete &quot;{team.name}&quot;? Agents will not be affected. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }

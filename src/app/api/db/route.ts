@@ -11,6 +11,25 @@ function snakeToCamel(row: Record<string, unknown>): Record<string, unknown> {
   return result;
 }
 
+function parseMessage(row: Record<string, unknown>): Record<string, unknown> {
+  const msg = snakeToCamel(row);
+  if (typeof msg.attachments === "string") {
+    try {
+      msg.attachments = JSON.parse(msg.attachments);
+    } catch {
+      msg.attachments = null;
+    }
+  }
+  if (typeof msg.toolCalls === "string") {
+    try {
+      msg.toolCalls = JSON.parse(msg.toolCalls);
+    } catch {
+      msg.toolCalls = null;
+    }
+  }
+  return msg;
+}
+
 function camelToSnake(obj: Record<string, unknown>): Record<string, unknown> {
   const result: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(obj)) {
@@ -39,6 +58,7 @@ export async function POST(req: NextRequest) {
           gatewayUrl: params.gatewayUrl || "",
           gatewayToken: params.gatewayToken || "",
           model: params.model || null,
+          channels: params.channels || null,
           customHeaders: params.customHeaders || null,
           createdAt: params.createdAt,
           updatedAt: params.updatedAt,
@@ -124,6 +144,7 @@ export async function POST(req: NextRequest) {
           id: params.id,
           companyId: params.companyId,
           name: params.name,
+          avatar: params.avatar || null,
           description: params.description || null,
           agentIds: JSON.stringify(params.agentIds || []),
           createdAt: params.createdAt,
@@ -153,7 +174,7 @@ export async function POST(req: NextRequest) {
           ))
           .orderBy(schema.messages.createdAt)
           .all();
-        return NextResponse.json({ data: rows.map(snakeToCamel) });
+        return NextResponse.json({ data: rows.map(r => parseMessage(r as unknown as Record<string, unknown>)) });
       }
       case "addMessage": {
         getDb().insert(schema.messages).values({
@@ -164,6 +185,8 @@ export async function POST(req: NextRequest) {
           role: params.role,
           agentId: params.agentId || null,
           content: params.content || "",
+          attachments: params.attachments ? JSON.stringify(params.attachments) : null,
+          toolCalls: params.toolCalls ? JSON.stringify(params.toolCalls) : null,
           createdAt: params.createdAt,
         }).run();
         return NextResponse.json({ ok: true });
@@ -173,7 +196,7 @@ export async function POST(req: NextRequest) {
           .where(eq(schema.messages.conversationId, params.conversationId))
           .orderBy(schema.messages.createdAt)
           .all();
-        return NextResponse.json({ data: rows.map(snakeToCamel) });
+        return NextResponse.json({ data: rows.map(r => parseMessage(r as unknown as Record<string, unknown>)) });
       }
       case "getConversationsByTarget": {
         const rows = getDb().select().from(schema.conversations)

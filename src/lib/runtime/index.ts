@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from "uuid";
 import type { RuntimeConfig, RuntimeEventHandler, RuntimeProvider } from "./types";
-import type { MessageAttachment } from "@/types";
+import type { MessageAttachment, ToolCallContent } from "@/types";
 
 export class RuntimeClient implements RuntimeProvider {
   private config: RuntimeConfig = { type: "openclaw", baseUrl: "", apiKey: "" };
@@ -58,7 +58,7 @@ export class RuntimeClient implements RuntimeProvider {
     const resolvedAgentId = agentId || this.extractAgentId(sessionKey);
     const abortController = new AbortController();
     this.activeAbortControllers.set(sessionKey, abortController);
-    const runId = uuidv4();
+    let runId = uuidv4();
 
     try {
       const headers: Record<string, string> = {
@@ -92,22 +92,8 @@ export class RuntimeClient implements RuntimeProvider {
           parts.push({ type: "text", text: message });
         }
         for (const att of imageAttachments) {
-          // Extract base64 data and media type from data URL
-          const match = att.url.match(/^data:([^;]+);base64,(.+)$/);
-          if (match) {
-            const [, mediaType, base64Data] = match;
-            parts.push({
-              type: "image",
-              source: {
-                type: "base64",
-                media_type: mediaType,
-                data: base64Data,
-              },
-            });
-          } else {
-            // Fallback to OpenAI image_url format for regular URLs
-            parts.push({ type: "image_url", image_url: { url: att.url } });
-          }
+          // Use OpenAI image_url format - works with both data URLs and regular URLs
+          parts.push({ type: "image_url", image_url: { url: att.url } });
         }
         messageContent = parts;
       } else {
@@ -143,6 +129,9 @@ export class RuntimeClient implements RuntimeProvider {
       const decoder = new TextDecoder();
       let accumulated = "";
       let buffer = "";
+      // Track tool calls being streamed
+      const activeToolCalls = new Map<number, { id: string; name: string; arguments: string }>();
+      let currentToolCalls: ToolCallContent[] = [];
 
       while (true) {
         const { done, value } = await reader.read();
@@ -158,27 +147,129 @@ export class RuntimeClient implements RuntimeProvider {
 
           const data = trimmed.slice(6);
           if (data === "[DONE]") {
-            this.handlers.onChatEvent?.({
-              runId,
-              sessionKey,
-              state: "final",
-              message: { role: "assistant", content: [{ type: "text", text: accumulated }], timestamp: Date.now() },
-            });
-            this.activeAbortControllers.delete(sessionKey);
-            return;
+            // Emit current accumulated content as a completed message
+            if (accumulated || currentToolCalls.length > 0) {
+              this.handlers.onChatEvent?.({
+                runId,
+                sessionKey,
+                state: "message_done",
+                message: {
+                  role: "assistant",
+                  content: [{ type: "text", text: accumulated }],
+                  timestamp: Date.now(),
+                },
+                toolCalls: currentToolCalls.length > 0 ? currentToolCalls : undefined,
+              });
+              // Reset for potential next message in the same stream
+              accumulated = "";
+              currentToolCalls = [];
+              activeToolCalls.clear();
+              runId = uuidv4();
+            }
+            continue;
           }
 
           try {
             const parsed = JSON.parse(data);
-            const delta = parsed.choices?.[0]?.delta?.content;
-            if (delta) {
-              accumulated += delta;
+
+            // Handle non-choices events (some gateways send tool results as separate events)
+            if (parsed.type === "tool_result" || parsed.type === "tool_output") {
+              const toolId = parsed.tool_call_id || parsed.id;
+              if (toolId) {
+                currentToolCalls = currentToolCalls.map(tc =>
+                  tc.id === toolId ? { ...tc, status: "completed" as const, result: typeof parsed.content === "string" ? parsed.content : JSON.stringify(parsed.content) } : tc
+                );
+                this.handlers.onChatEvent?.({
+                  runId,
+                  sessionKey,
+                  state: "delta",
+                  message: { role: "assistant", content: [{ type: "text", text: accumulated }], timestamp: Date.now() },
+                  toolCalls: currentToolCalls,
+                  phase: "tool-calling",
+                });
+              }
+              continue;
+            }
+
+            const choice = parsed.choices?.[0];
+            const delta = choice?.delta;
+            if (!delta) continue;
+
+            // Handle text content
+            if (delta.content) {
+              accumulated += delta.content;
               this.handlers.onChatEvent?.({
                 runId,
                 sessionKey,
                 state: "delta",
                 message: { role: "assistant", content: [{ type: "text", text: accumulated }], timestamp: Date.now() },
+                toolCalls: currentToolCalls.length > 0 ? currentToolCalls : undefined,
               });
+            }
+
+            // Handle tool calls (OpenAI format)
+            if (delta.tool_calls) {
+              for (const tc of delta.tool_calls) {
+                const idx = tc.index ?? 0;
+                if (tc.id) {
+                  // New tool call starting
+                  activeToolCalls.set(idx, {
+                    id: tc.id,
+                    name: tc.function?.name || "",
+                    arguments: tc.function?.arguments || "",
+                  });
+                } else if (activeToolCalls.has(idx)) {
+                  // Continue accumulating arguments
+                  const existing = activeToolCalls.get(idx)!;
+                  if (tc.function?.name) existing.name += tc.function.name;
+                  if (tc.function?.arguments) existing.arguments += tc.function.arguments;
+                }
+              }
+
+              // Update currentToolCalls from activeToolCalls
+              currentToolCalls = Array.from(activeToolCalls.values()).map(tc => ({
+                type: "tool_call" as const,
+                id: tc.id,
+                name: tc.name,
+                arguments: tc.arguments,
+                status: "calling" as const,
+              }));
+
+              this.handlers.onChatEvent?.({
+                runId,
+                sessionKey,
+                state: "delta",
+                message: { role: "assistant", content: [{ type: "text", text: accumulated }], timestamp: Date.now() },
+                toolCalls: currentToolCalls,
+                phase: "tool-calling",
+              });
+            }
+
+            // When a segment finishes (tool_calls or stop), save accumulated content as a separate message
+            if (choice?.finish_reason === "tool_calls" || choice?.finish_reason === "function_call" || choice?.finish_reason === "stop") {
+              if (choice.finish_reason !== "stop" ) {
+                // Mark all tool calls as completed
+                currentToolCalls = currentToolCalls.map(tc => ({ ...tc, status: "completed" as const }));
+              }
+              // Save current accumulated text as a completed message segment
+              if (accumulated) {
+                this.handlers.onChatEvent?.({
+                  runId,
+                  sessionKey,
+                  state: "message_done",
+                  message: {
+                    role: "assistant",
+                    content: [{ type: "text", text: accumulated }],
+                    timestamp: Date.now(),
+                  },
+                  toolCalls: currentToolCalls.length > 0 ? currentToolCalls : undefined,
+                });
+                // Reset for next segment
+                accumulated = "";
+                currentToolCalls = [];
+                activeToolCalls.clear();
+                runId = uuidv4();
+              }
             }
           } catch {
             // Skip malformed JSON
@@ -186,15 +277,23 @@ export class RuntimeClient implements RuntimeProvider {
         }
       }
 
-      // If we exit without [DONE], emit final with whatever we have
-      if (accumulated) {
+      // If we exit with remaining content (no trailing [DONE]), emit as message_done
+      if (accumulated || currentToolCalls.length > 0) {
         this.handlers.onChatEvent?.({
           runId,
           sessionKey,
-          state: "final",
+          state: "message_done",
           message: { role: "assistant", content: [{ type: "text", text: accumulated }], timestamp: Date.now() },
+          toolCalls: currentToolCalls.length > 0 ? currentToolCalls : undefined,
         });
       }
+      // Signal stream end
+      this.handlers.onChatEvent?.({
+        runId,
+        sessionKey,
+        state: "final",
+        message: { role: "assistant", content: [{ type: "text", text: "" }], timestamp: Date.now() },
+      });
     } catch (err: unknown) {
       if (err instanceof Error && err.name === "AbortError") {
         this.handlers.onChatEvent?.({

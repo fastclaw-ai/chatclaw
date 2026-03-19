@@ -25,7 +25,7 @@ export function getDb(): BetterSQLite3Database<typeof schema> {
         id TEXT PRIMARY KEY, name TEXT NOT NULL, logo TEXT, description TEXT,
         runtime_type TEXT NOT NULL DEFAULT 'openclaw',
         gateway_url TEXT NOT NULL DEFAULT '', gateway_token TEXT NOT NULL DEFAULT '',
-        model TEXT, custom_headers TEXT,
+        model TEXT, channels TEXT, custom_headers TEXT,
         user_id TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
       );
       CREATE TABLE IF NOT EXISTS agents (
@@ -34,13 +34,14 @@ export function getDb(): BetterSQLite3Database<typeof schema> {
         created_at INTEGER NOT NULL
       );
       CREATE TABLE IF NOT EXISTS teams (
-        id TEXT PRIMARY KEY, company_id TEXT NOT NULL, name TEXT NOT NULL, description TEXT,
+        id TEXT PRIMARY KEY, company_id TEXT NOT NULL, name TEXT NOT NULL, avatar TEXT, description TEXT,
         agent_ids TEXT NOT NULL DEFAULT '[]', created_at INTEGER NOT NULL
       );
       CREATE TABLE IF NOT EXISTS messages (
         id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL DEFAULT '',
         target_type TEXT NOT NULL, target_id TEXT NOT NULL,
         role TEXT NOT NULL, agent_id TEXT, content TEXT NOT NULL DEFAULT '',
+        attachments TEXT, tool_calls TEXT,
         created_at INTEGER NOT NULL
       );
       CREATE TABLE IF NOT EXISTS conversations (
@@ -49,6 +50,17 @@ export function getDb(): BetterSQLite3Database<typeof schema> {
         created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
       );
     `);
+
+    // Migrations for existing databases
+    const migrations = [
+      `ALTER TABLE messages ADD COLUMN attachments TEXT`,
+      `ALTER TABLE messages ADD COLUMN tool_calls TEXT`,
+      `ALTER TABLE teams ADD COLUMN avatar TEXT`,
+      `ALTER TABLE companies ADD COLUMN channels TEXT`,
+    ];
+    for (const sql of migrations) {
+      try { sqlite.exec(sql); } catch { /* Column already exists */ }
+    }
 
     _db = drizzle(sqlite, { schema });
   }

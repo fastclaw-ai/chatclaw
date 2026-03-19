@@ -22,61 +22,22 @@ import { testConnection } from "@/lib/runtime";
 import { cn } from "@/lib/utils";
 import {
   Building, Wifi, Wrench, Trash2, ChevronRight,
-  Loader2, CheckCircle2, XCircle, WifiOff, Upload, Smile, X,
+  Loader2, CheckCircle2, XCircle, WifiOff, X, FileCode,
 } from "lucide-react";
+import { AvatarPicker } from "@/components/avatar-picker";
 
-type Section = "general" | "gateway" | "advanced";
+type Section = "general" | "gateway" | "config" | "advanced";
 
 const sections: { id: Section; label: string; icon: React.ElementType }[] = [
   { id: "general", label: "General", icon: Building },
   { id: "gateway", label: "Gateway", icon: Wifi },
+  { id: "config", label: "Config", icon: FileCode },
   { id: "advanced", label: "Advanced", icon: Wrench },
 ];
 
-const MAX_LOGO_SIZE = 128 * 1024; // 128KB max for base64 logo
-
-const EMOJI_GROUPS = [
-  ["😀", "😂", "🤣", "😊", "😎", "🤩", "😇", "🥳"],
-  ["🚀", "⚡", "🔥", "💡", "⭐", "🌟", "✨", "💫"],
-  ["🤖", "👾", "🎮", "🧠", "💻", "🛠️", "🔧", "⚙️"],
-  ["🐱", "🐶", "🦊", "🐼", "🦁", "🐯", "🐻", "🐸"],
-  ["🏢", "🏠", "🏗️", "🌍", "🎯", "🎨", "📦", "💎"],
-];
 
 function isImageData(value: string): boolean {
   return value.startsWith("data:image/") || value.startsWith("http://") || value.startsWith("https://");
-}
-
-function handleImageUpload(
-  file: File,
-  onSuccess: (base64: string) => void,
-  onError: (msg: string) => void,
-) {
-  if (!file.type.startsWith("image/")) {
-    onError("Please select an image file");
-    return;
-  }
-  if (file.size > MAX_LOGO_SIZE) {
-    onError(`Image must be under ${MAX_LOGO_SIZE / 1024}KB`);
-    return;
-  }
-  const reader = new FileReader();
-  reader.onload = () => {
-    const img = new Image();
-    img.onload = () => {
-      // Resize to 128x128 max for storage efficiency
-      const size = 128;
-      const canvas = document.createElement("canvas");
-      canvas.width = size;
-      canvas.height = size;
-      const ctx = canvas.getContext("2d")!;
-      ctx.drawImage(img, 0, 0, size, size);
-      const base64 = canvas.toDataURL("image/png");
-      onSuccess(base64);
-    };
-    img.src = reader.result as string;
-  };
-  reader.readAsDataURL(file);
 }
 
 function normalizeGatewayUrl(url: string): string {
@@ -104,30 +65,49 @@ export function GatewaySettingsDialog({
 
   const [name, setName] = useState("");
   const [logo, setLogo] = useState("");
-  const [logoError, setLogoError] = useState("");
-  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [description, setDescription] = useState("");
   const [gatewayUrl, setGatewayUrl] = useState("");
   const [gatewayToken, setGatewayToken] = useState("");
+  const [model, setModel] = useState("");
+  const [channels, setChannels] = useState("");
   const [urlError, setUrlError] = useState("");
   const [testState, setTestState] = useState<"idle" | "testing" | "success" | "error">("idle");
   const [testError, setTestError] = useState("");
   const [activeSection, setActiveSection] = useState<Section>("general");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [configContent, setConfigContent] = useState("");
+  const [configPath, setConfigPath] = useState("");
+  const [loadingConfig, setLoadingConfig] = useState(false);
+  const [configError, setConfigError] = useState("");
 
   useEffect(() => {
     if (company) {
       setName(company.name);
       setLogo(company.logo || "");
-      setLogoError("");
-      setShowEmojiPicker(false);
       setDescription(company.description || "");
       setGatewayUrl(company.gatewayUrl || "");
       setGatewayToken(company.gatewayToken || "");
+      setModel(company.model || "");
+      setChannels(company.channels || "");
       setUrlError("");
       setActiveSection("general");
     }
   }, [company]);
+
+  // Load openclaw.json when switching to config tab
+  useEffect(() => {
+    if ((activeSection === "config" || activeSection === "advanced") && !configPath) {
+      setLoadingConfig(true);
+      fetch("/api/openclaw-config")
+        .then((r) => r.json())
+        .then((data) => {
+          setConfigContent(data.content || "");
+          setConfigPath(data.configPath || "");
+        })
+        .catch(() => {})
+        .finally(() => setLoadingConfig(false));
+    }
+  }, [activeSection, configPath]);
 
   if (!company) return null;
 
@@ -183,7 +163,25 @@ export function GatewaySettingsDialog({
       description: description.trim() || undefined,
       gatewayUrl: gatewayUrl.trim(),
       gatewayToken: gatewayToken.trim(),
+      model: model.trim() || undefined,
+      channels: channels.trim() || undefined,
     });
+
+    // Save openclaw.json if modified
+    if (configContent) {
+      const res = await fetch("/api/openclaw-config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: configContent }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        setConfigError(data.error || "Failed to save config");
+        setActiveSection("config");
+        return;
+      }
+    }
+
     onOpenChange(false);
   }
 
@@ -204,12 +202,12 @@ export function GatewaySettingsDialog({
           {/* LEFT - Sidebar */}
           <div className="w-[200px] border-r bg-muted/40 flex flex-col">
             {/* Company avatar + name */}
-            <div className="flex items-center gap-3 px-4 py-4">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground text-sm font-semibold overflow-hidden">
+            <div className="flex items-center gap-3 px-4 py-3 border-b">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground text-xs font-semibold overflow-hidden">
                 {logo && isImageData(logo) ? (
                   <img src={logo} alt="" className="h-full w-full object-cover" />
                 ) : logo ? (
-                  <span className="text-xl">{logo}</span>
+                  <span className="text-base">{logo}</span>
                 ) : (
                   name.slice(0, 2).toUpperCase() || company.name.slice(0, 2).toUpperCase()
                 )}
@@ -218,8 +216,6 @@ export function GatewaySettingsDialog({
                 <p className="text-sm font-semibold truncate">{name || company.name}</p>
               </div>
             </div>
-
-            <Separator />
 
             {/* Navigation */}
             <nav className="flex flex-col gap-1 p-2 flex-1">
@@ -263,7 +259,7 @@ export function GatewaySettingsDialog({
           {/* RIGHT - Content */}
           <div className="flex-1 flex flex-col min-w-0">
             {/* Breadcrumb header */}
-            <div className="flex items-center gap-1.5 px-6 py-4 text-sm text-muted-foreground border-b">
+            <div className="flex items-center gap-1.5 px-6 py-3 text-sm text-muted-foreground border-b">
               <span>Company Settings</span>
               <ChevronRight className="h-3.5 w-3.5" />
               <span className="text-foreground font-medium">{sectionLabel}</span>
@@ -273,97 +269,14 @@ export function GatewaySettingsDialog({
             <div className="flex-1 overflow-y-auto px-6 py-5">
               {activeSection === "general" && (
                 <div className="space-y-5">
-                  <div>
-                    <Label>Logo</Label>
-                    <div className="flex items-center gap-3 mt-2">
-                      <div className="relative group">
-                        <div className="flex h-14 w-14 items-center justify-center rounded-lg bg-primary text-primary-foreground text-2xl font-semibold overflow-hidden border">
-                          {logo && isImageData(logo) ? (
-                            <img src={logo} alt="" className="h-full w-full object-cover" />
-                          ) : logo ? (
-                            <span className="text-2xl">{logo}</span>
-                          ) : (
-                            name.slice(0, 2).toUpperCase() || "CC"
-                          )}
-                        </div>
-                        {logo && (
-                          <button
-                            type="button"
-                            onClick={() => { setLogo(""); setLogoError(""); }}
-                            className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                          >
-                            <X className="h-3 w-3" />
-                          </button>
-                        )}
-                      </div>
-                      <div className="flex flex-col gap-2 flex-1">
-                        <div className="flex gap-2">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-                          >
-                            <Smile className="h-4 w-4 mr-1.5" />
-                            Emoji
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                              const input = document.createElement("input");
-                              input.type = "file";
-                              input.accept = "image/*";
-                              input.onchange = (e) => {
-                                const file = (e.target as HTMLInputElement).files?.[0];
-                                if (file) {
-                                  handleImageUpload(
-                                    file,
-                                    (base64) => { setLogo(base64); setLogoError(""); },
-                                    (msg) => setLogoError(msg),
-                                  );
-                                }
-                              };
-                              input.click();
-                            }}
-                          >
-                            <Upload className="h-4 w-4 mr-1.5" />
-                            Upload
-                          </Button>
-                        </div>
-                        {logoError && (
-                          <p className="text-xs text-destructive">{logoError}</p>
-                        )}
-                        <p className="text-xs text-muted-foreground">
-                          Pick an emoji or upload an image (max 128KB)
-                        </p>
-                      </div>
-                    </div>
-                    {showEmojiPicker && (
-                      <div className="mt-3 rounded-lg border bg-muted/40 p-3">
-                        <div className="space-y-2">
-                          {EMOJI_GROUPS.map((row, i) => (
-                            <div key={i} className="flex gap-1">
-                              {row.map((emoji) => (
-                                <button
-                                  key={emoji}
-                                  type="button"
-                                  onClick={() => { setLogo(emoji); setShowEmojiPicker(false); setLogoError(""); }}
-                                  className={cn(
-                                    "h-9 w-9 rounded-md text-lg flex items-center justify-center hover:bg-background transition-colors",
-                                    logo === emoji && "bg-background ring-2 ring-primary"
-                                  )}
-                                >
-                                  {emoji}
-                                </button>
-                              ))}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
+                  <AvatarPicker
+                    label="Logo"
+                    value={logo}
+                    onChange={setLogo}
+                    shape="rounded"
+                    seed={company.id}
+                    fallback={<span className="text-sm font-semibold">{name.slice(0, 2).toUpperCase() || "CC"}</span>}
+                  />
                   <div>
                     <Label>Company Name</Label>
                     <Input
@@ -438,6 +351,33 @@ export function GatewaySettingsDialog({
                   </div>
                   {testError && (
                     <p className="text-sm text-destructive">{testError}</p>
+                  )}
+                </div>
+              )}
+
+              {activeSection === "config" && (
+                <div className="space-y-3">
+                  <div>
+                    <Label>openclaw.json</Label>
+                    <code className="mt-1 block text-xs text-muted-foreground font-mono">
+                      {configPath || "~/.openclaw/openclaw.json"}
+                    </code>
+                  </div>
+                  {loadingConfig ? (
+                    <div className="flex items-center gap-2 text-muted-foreground text-sm py-4">
+                      <Loader2 className="h-4 w-4 animate-spin" /> Loading...
+                    </div>
+                  ) : (
+                    <textarea
+                      value={configContent}
+                      onChange={(e) => { setConfigContent(e.target.value); setConfigError(""); }}
+                      spellCheck={false}
+                      className="w-full rounded-md border bg-background px-3 py-2 font-mono text-xs leading-relaxed outline-none focus:ring-1 focus:ring-primary/30 overflow-auto whitespace-pre"
+                      style={{ minHeight: 350, resize: "vertical", tabSize: 2 }}
+                    />
+                  )}
+                  {configError && (
+                    <p className="text-sm text-destructive">{configError}</p>
                   )}
                 </div>
               )}

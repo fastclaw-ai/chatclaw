@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 
 export function ConversationPanel() {
   const { state, actions } = useStore();
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
 
@@ -17,6 +17,11 @@ export function ConversationPanel() {
 
   const conversations = state.conversations.filter(
     c => c.targetType === target.type && c.targetId === target.id
+  );
+
+  // Check if any agent is currently streaming for this target
+  const isStreaming = Object.values(state.streamingStates).some(
+    s => s.isStreaming && s.targetType === target.type && s.targetId === target.id
   );
 
   if (collapsed) {
@@ -39,7 +44,7 @@ export function ConversationPanel() {
   return (
     <div className="flex flex-col w-[280px] border-l bg-muted/30 shrink-0">
       {/* Header */}
-      <div className="flex items-center gap-2 px-3 py-2.5 border-b">
+      <div className="flex h-12 items-center gap-2 px-3 border-b shrink-0">
         <MessageCircle className="h-4 w-4 text-muted-foreground" />
         <span className="text-sm font-medium flex-1">Conversations</span>
         <button
@@ -115,6 +120,9 @@ export function ConversationPanel() {
                   <>
                     <MessageCircle className="h-3.5 w-3.5 shrink-0 opacity-50" />
                     <span className="truncate flex-1">{conv.title}</span>
+                    {state.unreadConversations[conv.id] && !isActive && (
+                      <span className="h-2 w-2 rounded-full bg-primary shrink-0" />
+                    )}
                     <span className="text-[10px] text-muted-foreground shrink-0 hidden group-hover:hidden">
                       {time}
                     </span>
@@ -127,9 +135,13 @@ export function ConversationPanel() {
                         <Pencil className="h-3 w-3" />
                       </button>
                       <button
-                        onClick={e => { e.stopPropagation(); actions.deleteConversation(conv.id); }}
-                        className="p-0.5 rounded hover:bg-muted text-destructive"
-                        title="Delete"
+                        onClick={e => { e.stopPropagation(); if (!isStreaming) actions.deleteConversation(conv.id); }}
+                        className={cn(
+                          "p-0.5 rounded hover:bg-muted",
+                          isStreaming && isActive ? "text-muted-foreground/30 cursor-not-allowed" : "text-destructive"
+                        )}
+                        title={isStreaming && isActive ? "Cannot delete while streaming" : "Delete"}
+                        disabled={isStreaming && isActive}
                       >
                         <Trash2 className="h-3 w-3" />
                       </button>

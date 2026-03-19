@@ -46,6 +46,7 @@ import type {
   ChatTargetType,
   StreamingPhase,
   MessageAttachment,
+  ToolCallContent,
 } from "@/types";
 
 // ── Session Key Helpers ────────────────────────────────────────────
@@ -85,9 +86,11 @@ type Action =
   | { type: "UPDATE_CONVERSATION"; id: string; updates: Partial<Conversation> }
   | { type: "DELETE_CONVERSATION"; id: string }
   | { type: "SET_ACTIVE_CONVERSATION"; id: string | null }
-  | { type: "SET_STREAMING"; agentId: string; targetType: ChatTargetType; targetId: string; sessionKey: string; isStreaming: boolean }
-  | { type: "SET_STREAMING_CONTENT"; agentId: string; content: string; runId: string | null }
-  | { type: "CLEAR_STREAMING"; agentId: string };
+  | { type: "SET_STREAMING"; agentId: string; targetType: ChatTargetType; targetId: string; conversationId?: string; sessionKey: string; isStreaming: boolean }
+  | { type: "SET_STREAMING_CONTENT"; agentId: string; content: string; runId: string | null; phase?: StreamingPhase; toolCalls?: ToolCallContent[] }
+  | { type: "CLEAR_STREAMING"; agentId: string }
+  | { type: "MARK_UNREAD"; conversationId: string }
+  | { type: "CLEAR_UNREAD"; conversationId: string };
 
 // ── Initial State ───────────────────────────────────────────────────
 
@@ -103,6 +106,7 @@ const initialState: AppState = {
   connectionStatus: "disconnected",
   agentIdentities: {},
   streamingStates: {},
+  unreadConversations: {},
   initialized: false,
 };
 
@@ -210,9 +214,11 @@ function reducer(state: AppState, action: Action): AppState {
             [action.agentId]: {
               isStreaming: true,
               content: "",
+              toolCalls: [],
               runId: null,
               targetType: action.targetType,
               targetId: action.targetId,
+              conversationId: action.conversationId || "",
               sessionKey: action.sessionKey,
               phase: "connecting" as StreamingPhase,
             },
@@ -228,6 +234,7 @@ function reducer(state: AppState, action: Action): AppState {
     case "SET_STREAMING_CONTENT": {
       const existing = state.streamingStates[action.agentId];
       if (!existing) return state;
+      const phase = action.phase ?? (action.content ? "responding" : "thinking");
       return {
         ...state,
         streamingStates: {
@@ -236,7 +243,8 @@ function reducer(state: AppState, action: Action): AppState {
             ...existing,
             content: action.content,
             runId: action.runId,
-            phase: action.content ? "responding" : "thinking",
+            phase,
+            toolCalls: action.toolCalls ?? existing.toolCalls,
           },
         },
       };
@@ -248,6 +256,13 @@ function reducer(state: AppState, action: Action): AppState {
           Object.entries(state.streamingStates).filter(([k]) => k !== action.agentId)
         ),
       };
+
+    case "MARK_UNREAD":
+      return { ...state, unreadConversations: { ...state.unreadConversations, [action.conversationId]: true } };
+    case "CLEAR_UNREAD": {
+      const { [action.conversationId]: _, ...rest } = state.unreadConversations;
+      return { ...state, unreadConversations: rest };
+    }
 
     default:
       return state;
@@ -305,6 +320,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   stateRef.current = state;
   const gatewayRef = useRef<RuntimeClient | null>(null);
   const pendingStreamResolvers = useRef<Map<string, () => void>>(new Map());
+  const teamAbortedRef = useRef(false);
 
   // ── Resolve agentId from sessionKey ───────────────────────────
 
@@ -345,7 +361,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
         const current = stateRef.current;
         const streaming = current.streamingStates[agentId];
-        const text = payload.message?.content?.[0]?.text ?? "";
+        const firstContent = payload.message?.content?.[0];
+        const text = (firstContent && firstContent.type === "text") ? firstContent.text : "";
 
         switch (payload.state) {
           case "delta": {
@@ -354,29 +371,44 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
               agentId,
               content: text,
               runId: payload.runId,
+              phase: payload.phase,
+              toolCalls: payload.toolCalls,
             });
             break;
           }
-          case "final": {
-            const finalText = text || streaming?.content || "";
-            if (finalText && streaming) {
+          case "message_done": {
+            // An intermediate message completed — save it and show immediately
+            const doneText = text || streaming?.content || "";
+            if ((doneText || (payload.toolCalls && payload.toolCalls.length > 0)) && streaming) {
               const msg: Message = {
                 id: uuidv4(),
-                conversationId: current.activeConversationId || "",
+                conversationId: streaming.conversationId,
                 targetType: streaming.targetType,
                 targetId: streaming.targetId,
                 role: "assistant",
                 agentId,
-                content: finalText,
+                content: doneText,
+                toolCalls: payload.toolCalls?.length ? payload.toolCalls : undefined,
                 createdAt: payload.message?.timestamp ?? Date.now(),
               };
-              addMessage(msg).then(() => {
-                const s = stateRef.current;
-                if (s.activeChatTarget?.type === streaming.targetType && s.activeChatTarget?.id === streaming.targetId) {
-                  dispatch({ type: "ADD_MESSAGE", message: msg });
-                }
-              });
+              // Only show in UI if user is viewing the same conversation
+              const s = stateRef.current;
+              if (s.activeConversationId === streaming.conversationId) {
+                dispatch({ type: "ADD_MESSAGE", message: msg });
+              }
+              addMessage(msg);
             }
+            // Reset streaming content for the next message, but keep streaming active
+            dispatch({
+              type: "SET_STREAMING_CONTENT",
+              agentId,
+              content: "",
+              runId: null,
+            });
+            break;
+          }
+          case "final": {
+            // Stream ended — stop streaming (messages were already saved via message_done)
             dispatch({ type: "SET_STREAMING", agentId, targetType: streaming?.targetType ?? "agent", targetId: streaming?.targetId ?? "", sessionKey: "", isStreaming: false });
             const finalResolver = pendingStreamResolvers.current.get(agentId);
             if (finalResolver) {
@@ -390,7 +422,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
             if (streaming) {
               const msg: Message = {
                 id: uuidv4(),
-                conversationId: current.activeConversationId || "",
+                conversationId: streaming.conversationId,
                 targetType: streaming.targetType,
                 targetId: streaming.targetId,
                 role: "assistant",
@@ -400,7 +432,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
               };
               addMessage(msg).then(() => {
                 const s = stateRef.current;
-                if (s.activeChatTarget?.type === streaming.targetType && s.activeChatTarget?.id === streaming.targetId) {
+                if (s.activeConversationId === streaming.conversationId) {
                   dispatch({ type: "ADD_MESSAGE", message: msg });
                 }
               });
@@ -418,7 +450,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
             if (abortedText && streaming) {
               const msg: Message = {
                 id: uuidv4(),
-                conversationId: current.activeConversationId || "",
+                conversationId: streaming.conversationId,
                 targetType: streaming.targetType,
                 targetId: streaming.targetId,
                 role: "assistant",
@@ -428,7 +460,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
               };
               addMessage(msg).then(() => {
                 const s = stateRef.current;
-                if (s.activeChatTarget?.type === streaming.targetType && s.activeChatTarget?.id === streaming.targetId) {
+                if (s.activeConversationId === streaming.conversationId) {
                   dispatch({ type: "ADD_MESSAGE", message: msg });
                 }
               });
@@ -625,6 +657,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const selectConversationAction = useCallback(async (id: string) => {
     dispatch({ type: "SET_ACTIVE_CONVERSATION", id });
+    dispatch({ type: "CLEAR_UNREAD", conversationId: id });
     const msgs = await getMessagesByConversation(id);
     dispatch({ type: "SET_MESSAGES", messages: msgs });
   }, []);
@@ -710,6 +743,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         agentId: target.id,
         targetType: "agent",
         targetId: target.id,
+        conversationId,
         sessionKey,
         isStreaming: true,
       });
@@ -735,14 +769,19 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         .join("\n\n");
 
       let currentRoundReplies: Array<{ agentName: string; content: string }> = [];
+      teamAbortedRef.current = false;
 
       for (const agentId of team.agentIds) {
+        // Check if team chat was aborted
+        if (teamAbortedRef.current) break;
+
         const sessionKey = teamSessionKey(agentId, target.id, conversationId);
         dispatch({
           type: "SET_STREAMING",
           agentId,
           targetType: "team",
           targetId: target.id,
+          conversationId,
           sessionKey,
           isStreaming: true,
         });
@@ -766,10 +805,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
             messageToSend = `${contextParts.join("\n\n")}\n\n[New user message]\n${content}`;
           }
 
-          await client.sendMessage(sessionKey, messageToSend, undefined, attachments);
-
-          // Wait for this agent's streaming to complete before sending to the next
-          await Promise.race([
+          // Set up resolver BEFORE sending so the final event can resolve it
+          const streamDone = Promise.race([
             new Promise<void>((resolve) => {
               pendingStreamResolvers.current.set(agentId, resolve);
             }),
@@ -778,6 +815,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
               resolve();
             }, STREAM_TIMEOUT)),
           ]);
+
+          await client.sendMessage(sessionKey, messageToSend, undefined, attachments);
+
+          // Wait for streaming to complete (final/error/aborted event)
+          await streamDone;
 
           // Collect this agent's reply for the next agent's context in this round
           const latestState = stateRef.current;
@@ -800,12 +842,23 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const streaming = current.streamingStates[agentId];
     if (!streaming) return;
 
+    // Signal team loop to stop
+    teamAbortedRef.current = true;
+
     const client = gatewayRef.current;
     if (client) {
       try {
         await client.abortChat(streaming.sessionKey);
       } catch {
-        dispatch({ type: "CLEAR_STREAMING", agentId });
+        // Abort failed, clean up manually
+      }
+      // Force clear streaming state
+      dispatch({ type: "CLEAR_STREAMING", agentId });
+      // Also resolve any pending stream resolver
+      const resolver = pendingStreamResolvers.current.get(agentId);
+      if (resolver) {
+        pendingStreamResolvers.current.delete(agentId);
+        resolver();
       }
     }
   }, []);

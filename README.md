@@ -2,39 +2,57 @@
 
 An open-source multi-agent chat platform. Create virtual companies, hire AI agent employees, build teams for collaborative work.
 
-Works with [OpenClaw](https://github.com/openclaw/openclaw), OpenAI-compatible APIs, or any custom endpoint.
+Works with [OpenClaw](https://github.com/anthropics/openclaw) gateway or any OpenAI-compatible API.
 
 ![ChatClaw Preview](./preview.png)
 
 ## Features
 
-### 🏢 Virtual Companies
-- Create multiple companies, each with its own agent runtime
-- Switch between companies via dropdown
-- Support **OpenClaw**, **OpenAI Compatible**, and **Custom** runtime providers
+### Multi-Agent Chat
+- DM with individual agents or group chat with teams
+- Agents reply sequentially in teams, each seeing the full conversation context
+- Multi-message streaming — agents can send multiple messages in one response (like Discord/Telegram)
+- Real-time tool call display with collapsible arguments/results and inline image rendering
+- Image and file upload via paperclip button or clipboard paste
+- Markdown rendering with syntax-highlighted code blocks
+- Message actions: copy, retry
 
-### 🤖 Multi-Agent Management
-- Auto-sync agents from OpenClaw Gateway
-- Manually create agents for any runtime
-- Per-agent settings: Soul, Identity, Instructions, Skills, Tools, Heartbeat
-- DiceBear robot avatars
+### Customizable Avatars
+- Shared `AvatarPicker` component used across company, agent, team, and user profiles
+- Three modes: **Random** (8 DiceBear styles, re-randomized on each click), **Emoji** (curated grid), **Upload** (resized to 128x128, max 128KB)
+- Circle shape for agents/users, rounded for companies/teams
 
-### 👥 Team Collaboration
+### Company & Gateway
+- Create companies connected to OpenClaw gateways
+- Auto-detect local gateway on setup
+- Test connection before saving
+- Edit `openclaw.json` config directly in the UI with JSON validation
+- Multi-company mode with dropdown switcher (optional)
+
+### Agent Configuration
+- Per-agent workspace file editors: `SOUL.md`, `IDENTITY.md`, `AGENTS.md`, `USER.md`, `TOOLS.md`, `HEARTBEAT.md`
+- Auto-sync agents from OpenClaw gateway
+- View installed skills (global + agent-specific)
+- Custom avatar, name, and description per agent
+- Default agent protected from deletion
+
+### Team Management
 - Create teams with multiple agents
-- **Sequential replies** — agents respond in order with full context
-- Each agent sees the complete team conversation history
+- Custom team avatars and descriptions
+- Member selection from company agents
+- Delete confirmation dialogs
 
-### 💬 Multi-Conversation
+### Multi-Conversation
 - Multiple conversations per agent/team
-- Conversation panel with rename, delete
+- Collapsible conversation panel with rename and delete
 - Conversation-scoped session keys
 
-### ⚙️ Agent Configuration (OpenClaw)
-- Edit `SOUL.md`, `IDENTITY.md`, `AGENTS.md`, `USER.md`, `TOOLS.md`, `HEARTBEAT.md`
-- View installed skills (global + agent-specific)
-- All changes saved directly to OpenClaw workspace files
+### User Profile & Appearance
+- Customizable user avatar and nickname
+- Theme modes: Light, Dark, System (follows OS preference)
+- Settings accessible from sidebar footer
 
-### 🔐 Auth (Optional)
+### Auth (Optional)
 - Email/password authentication (next-auth v5)
 - Enable for cloud multi-tenant deployment
 - Disabled by default for local use
@@ -42,18 +60,17 @@ Works with [OpenClaw](https://github.com/openclaw/openclaw), OpenAI-compatible A
 ## Quick Start
 
 ```bash
-git clone https://github.com/fastclaw-ai/chatclaw.git
+git clone https://github.com/anthropics/chatclaw.git
 cd chatclaw
 pnpm install
 pnpm dev
 ```
 
-Open http://localhost:3000 — auto-detects your local OpenClaw Gateway.
+Open http://localhost:3000 — auto-detects your local OpenClaw gateway.
 
 ## Docker
 
 ```bash
-# Build and run
 docker compose up -d
 
 # Or build manually
@@ -61,37 +78,18 @@ docker build -t chatclaw .
 docker run -p 3000:3000 -v chatclaw-data:/data chatclaw
 ```
 
-## K8s Deployment
-
-```yaml
-containers:
-- name: chatclaw
-  image: chatclaw:latest
-  ports: [{containerPort: 3000}]
-  volumeMounts: [{name: data, mountPath: /data}]
-  env:
-  - {name: NEXT_PUBLIC_DB_BACKEND, value: "drizzle"}
-  - {name: NEXT_PUBLIC_AUTH_ENABLED, value: "true"}
-  - {name: AUTH_SECRET, valueFrom: {secretKeyRef: {name: chatclaw, key: auth-secret}}}
-```
-
-## Runtime Providers
-
-| Provider | Use Case | Features |
-|---|---|---|
-| **OpenClaw** | OpenClaw Gateway | Agent sync, workspace files, session memory |
-| **OpenAI** | OpenRouter, LiteLLM, vLLM | Standard chat completions |
-| **Custom** | Any endpoint | Custom headers, flexible config |
-
 ## Configuration
 
 ```env
 # Database: "indexeddb" (default, browser) or "drizzle" (server-side SQLite)
-NEXT_PUBLIC_DB_BACKEND=indexeddb
+DB_BACKEND=indexeddb
 
 # Auth: "true" for cloud deployment
-NEXT_PUBLIC_AUTH_ENABLED=false
+AUTH_ENABLED=false
 AUTH_SECRET=your-secret
+
+# Multi-company mode (default: true)
+MULTI_COMPANY=true
 
 # Data directory (drizzle mode)
 CHATCLAW_DATA_DIR=./data
@@ -110,13 +108,15 @@ CHATCLAW_DATA_DIR=./data
 
 ```
 chatclaw (Web UI)
-    ├── RuntimeClient (provider pattern)
-    │   ├── openclaw  → OpenClaw Gateway
-    │   ├── openai    → OpenAI-compatible API
-    │   └── custom    → Any endpoint
-    ├── DB Layer (facade)
+    ├── RuntimeClient
+    │   └── openclaw → OpenClaw Gateway (SSE streaming)
+    ├── AvatarPicker (shared: Random / Emoji / Upload)
+    ├── DB Layer
     │   ├── IndexedDB  (browser, default)
     │   └── Drizzle    (SQLite, cloud)
+    ├── Config Editor
+    │   ├── openclaw.json  (gateway config)
+    │   └── Workspace files (agent config)
     └── Auth (optional)
         └── next-auth v5 (credentials)
 ```

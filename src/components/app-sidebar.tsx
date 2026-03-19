@@ -2,14 +2,14 @@
 
 import React, { useState, useEffect } from "react";
 import {
-  Bot, Users, Plus, Settings, RefreshCw, ChevronsUpDown, Check, Trash2,
-  ChevronDown, Sun, Moon, LogOut,
+  Users, Plus, Settings, ChevronsUpDown, Check,
+  ChevronDown,
 } from "lucide-react";
 import { useAuthSession } from "@/hooks/use-auth-session";
 import { useAppConfig } from "@/hooks/use-app-config";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
-import { getAgentAvatarUrl } from "@/lib/avatar";
+import { getAgentAvatarUrl, isEmojiAvatar } from "@/lib/avatar";
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupAction,
   SidebarGroupLabel, SidebarHeader, SidebarMenu, SidebarMenuButton,
@@ -28,6 +28,8 @@ import { CreateTeamDialog } from "@/components/dialogs/create-team-dialog";
 import { AgentSettingsDialog } from "@/components/dialogs/agent-settings-dialog";
 import { GatewaySettingsDialog } from "@/components/dialogs/gateway-settings-dialog";
 import { TeamSettingsDialog } from "@/components/dialogs/team-settings-dialog";
+import { UserProfileDialog, loadUserProfile, loadThemeMode, applyTheme } from "@/components/dialogs/user-profile-dialog";
+import type { UserProfile } from "@/components/dialogs/user-profile-dialog";
 import type { Agent, AgentTeam } from "@/types";
 
 // multiCompany is now read from runtime config via useAppConfig()
@@ -37,24 +39,26 @@ function isImageData(value: string): boolean {
 }
 
 function CompanyLogo({ logo, name, size = "sm" }: { logo?: string; name?: string; size?: "sm" | "md" }) {
-  const sizeClass = size === "md" ? "h-8 w-8 text-sm" : "h-6 w-6 text-xs";
+  const sizeClass = size === "md" ? "h-8 w-8 text-base" : "h-6 w-6 text-xs";
   const fallback = name?.slice(0, 2).toUpperCase() || "CC";
 
   return (
-    <div className={`flex items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground font-semibold overflow-hidden ${sizeClass}`}>
+    <div className={`flex items-center justify-center rounded-lg font-semibold overflow-hidden ${sizeClass}`}>
       {logo && isImageData(logo) ? (
         <img src={logo} alt="" className="h-full w-full object-cover" />
       ) : logo ? (
         <span>{logo}</span>
       ) : (
-        fallback
+        <div className={`flex items-center justify-center rounded-lg bg-primary text-primary-foreground font-semibold ${sizeClass}`}>
+          {fallback}
+        </div>
       )}
     </div>
   );
 }
 
 export function AppSidebar() {
-  const { session, signOut } = useAuthSession();
+  const { session } = useAuthSession();
   const { multiCompany } = useAppConfig();
   const { state, actions } = useStore();
   const [showCreateCompany, setShowCreateCompany] = useState(false);
@@ -63,14 +67,12 @@ export function AppSidebar() {
   const [showSettings, setShowSettings] = useState(false);
   const [editingAgent, setEditingAgent] = useState<Agent | null>(null);
   const [editingTeam, setEditingTeam] = useState<AgentTeam | null>(null);
-  const [syncing, setSyncing] = useState(false);
-  const [theme, setTheme] = useState<"light" | "dark">("dark");
+  const [showUserProfile, setShowUserProfile] = useState(false);
+  const [userProfile, setUserProfile] = useState<UserProfile>({ name: "", avatar: "" });
 
   useEffect(() => {
-    const saved = localStorage.getItem("chatclaw-theme") as "light" | "dark" | null;
-    const initial = saved || "dark";
-    setTheme(initial);
-    document.documentElement.classList.toggle("dark", initial === "dark");
+    applyTheme(loadThemeMode());
+    setUserProfile(loadUserProfile());
   }, []);
 
   // Auto-open create company dialog when no companies exist (after data loaded)
@@ -79,13 +81,6 @@ export function AppSidebar() {
       setShowCreateCompany(true);
     }
   }, [state.initialized, state.companies.length]);
-
-  const toggleTheme = () => {
-    const next = theme === "dark" ? "light" : "dark";
-    setTheme(next);
-    document.documentElement.classList.toggle("dark", next === "dark");
-    localStorage.setItem("chatclaw-theme", next);
-  };
 
   const activeCompany = state.companies.find((c) => c.id === state.activeCompanyId);
   const companyAgents = state.agents.filter((a) => a.companyId === state.activeCompanyId);
@@ -137,6 +132,18 @@ export function AppSidebar() {
                 </span>
               </SidebarMenuButton>
             )}
+            <SidebarMenuAction
+              showOnHover
+              onClick={() => setShowSettings(true)}
+              title="Settings"
+              className="!top-1/2 !-translate-y-1/2"
+            >
+              <Settings className="h-4 w-4" />
+              <span className={cn(
+                "absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full",
+                isConnected ? "bg-green-500" : "bg-red-500"
+              )} />
+            </SidebarMenuAction>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarHeader>
@@ -151,17 +158,6 @@ export function AppSidebar() {
                 <ChevronDown className="ml-auto h-4 w-4 transition-transform group-data-[state=open]/collapsible:rotate-0 group-data-[state=closed]/collapsible:-rotate-90" />
               </CollapsibleTrigger>
             </SidebarGroupLabel>
-            {activeCompany?.runtimeType === "openclaw" && (
-              <SidebarGroupAction
-                title="Sync agents"
-                onClick={() => {
-                  setSyncing(true);
-                  actions.syncAgents().finally(() => setSyncing(false));
-                }}
-              >
-                <RefreshCw className={cn("h-4 w-4", syncing && "animate-spin")} />
-              </SidebarGroupAction>
-            )}
             <CollapsibleContent>
               <SidebarMenu>
                 {companyAgents.map((agent) => {
@@ -174,11 +170,15 @@ export function AppSidebar() {
                         isActive={isActive}
                         onClick={() => actions.selectChatTarget({ type: "agent", id: agent.id })}
                       >
-                        <img
-                          src={getAgentAvatarUrl(agent.id)}
-                          alt={agent.name}
-                          className="h-5 w-5 rounded-full"
-                        />
+                        {isEmojiAvatar(agent.avatar) ? (
+                          <span className="h-5 w-5 flex items-center justify-center text-sm">{agent.avatar}</span>
+                        ) : (
+                          <img
+                            src={agent.avatar || getAgentAvatarUrl(agent.id)}
+                            alt={agent.name}
+                            className="h-5 w-5 rounded-full object-cover"
+                          />
+                        )}
                         <span>{identity?.name || agent.name}</span>
                       </SidebarMenuButton>
                       <SidebarMenuAction
@@ -221,7 +221,13 @@ export function AppSidebar() {
                         isActive={isActive}
                         onClick={() => actions.selectChatTarget({ type: "team", id: team.id })}
                       >
-                        <Users className="h-4 w-4" />
+                        {isEmojiAvatar(team.avatar) ? (
+                          <span className="h-4 w-4 flex items-center justify-center text-sm">{team.avatar}</span>
+                        ) : team.avatar && (team.avatar.startsWith("data:") || team.avatar.startsWith("http")) ? (
+                          <img src={team.avatar} alt={team.name} className="h-5 w-5 rounded object-cover" />
+                        ) : (
+                          <Users className="h-4 w-4" />
+                        )}
                         <span>{team.name}</span>
                         <span className="ml-auto text-xs text-muted-foreground">{team.agentIds.length}</span>
                       </SidebarMenuButton>
@@ -247,37 +253,30 @@ export function AppSidebar() {
         </Collapsible>
       </SidebarContent>
 
-      {/* Footer: Settings */}
+      {/* Footer */}
       <SidebarFooter>
         <SidebarMenu>
-          {session?.user && (
-            <SidebarMenuItem>
-              <SidebarMenuButton className="cursor-default">
-                <div className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-semibold">
-                  {session.user.name?.[0]?.toUpperCase() || session.user.email?.[0]?.toUpperCase() || "U"}
+          <SidebarMenuItem>
+            <SidebarMenuButton size="lg" onClick={() => setShowUserProfile(true)} className="cursor-pointer">
+              {userProfile.avatar && isImageData(userProfile.avatar) ? (
+                <img src={userProfile.avatar} alt="" className="h-8 w-8 rounded-full object-cover" />
+              ) : userProfile.avatar ? (
+                <span className="h-8 w-8 flex items-center justify-center rounded-full bg-muted text-base">{userProfile.avatar}</span>
+              ) : (
+                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-primary-foreground text-sm font-semibold">
+                  {(userProfile.name || session?.user?.name || session?.user?.email || "U")[0]?.toUpperCase()}
                 </div>
-                <span className="truncate">{session.user.name || session.user.email}</span>
-              </SidebarMenuButton>
-              <SidebarMenuAction onClick={() => signOut()} title="Sign out">
-                <LogOut className="h-4 w-4" />
-              </SidebarMenuAction>
-            </SidebarMenuItem>
-          )}
-          <SidebarMenuItem>
-            <SidebarMenuButton onClick={toggleTheme}>
-              {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-              <span>{theme === "dark" ? "Light Mode" : "Dark Mode"}</span>
+              )}
+              <span className="font-semibold truncate flex-1 min-w-0">{userProfile.name || session?.user?.name || session?.user?.email || "User"}</span>
             </SidebarMenuButton>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            <SidebarMenuButton onClick={() => setShowSettings(true)}>
+            <SidebarMenuAction
+              showOnHover
+              onClick={() => setShowUserProfile(true)}
+              title="User settings"
+              className="!top-1/2 !-translate-y-1/2"
+            >
               <Settings className="h-4 w-4" />
-              <span>Settings</span>
-              <span className={cn(
-                "ml-auto h-2 w-2 rounded-full",
-                isConnected ? "bg-green-500" : "bg-red-500"
-              )} />
-            </SidebarMenuButton>
+            </SidebarMenuAction>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>
@@ -309,6 +308,11 @@ export function AppSidebar() {
           onOpenChange={(open) => !open && setEditingTeam(null)}
         />
       )}
+      <UserProfileDialog
+        open={showUserProfile}
+        onOpenChange={setShowUserProfile}
+        onSave={(profile) => setUserProfile(profile)}
+      />
     </Sidebar>
   );
 }

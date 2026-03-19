@@ -37,7 +37,54 @@ function extractText(children: React.ReactNode): string {
   return String(children ?? "");
 }
 
-export function MarkdownRenderer({ content }: { content: string }) {
+const IMAGE_EXT_RE = /\.(?:png|jpg|jpeg|gif|webp|svg)$/i;
+
+/**
+ * Preprocess content to convert image file references to rendered images.
+ * Handles:
+ * - Backtick-wrapped filenames: `filename.png`
+ * - Full workspace paths: ~/.openclaw/workspace-xxx/filename.png
+ * - Bare filenames: filename.png
+ */
+function preprocessContent(content: string, agentId?: string): string {
+  if (!agentId) return content;
+
+  let result = content;
+
+  // 1. Full workspace paths (with or without backticks):  ~/.openclaw/workspace-xxx/filename.png
+  result = result.replace(
+    /`?~?\/?\.openclaw\/workspace[^/]*\/([\w][\w\-. ]*\.(?:png|jpg|jpeg|gif|webp|svg))`?/gi,
+    (_match, filename) => {
+      const url = `/api/workspace/files?agentId=${encodeURIComponent(agentId)}&file=${encodeURIComponent(filename)}`;
+      return `\n![${filename}](${url})\n`;
+    }
+  );
+
+  // 2. Backtick-wrapped image filenames: `filename.png`
+  result = result.replace(
+    /`([\w][\w\-. ]*\.(?:png|jpg|jpeg|gif|webp|svg))`/gi,
+    (_match, filename) => {
+      const url = `/api/workspace/files?agentId=${encodeURIComponent(agentId)}&file=${encodeURIComponent(filename)}`;
+      return `![${filename}](${url})`;
+    }
+  );
+
+  // 3. Bare image filenames not already in markdown image syntax
+  //    Match filenames preceded by whitespace/start and followed by whitespace/end/punctuation
+  result = result.replace(
+    /(?<!\(|!?\[.*?\]\()(?:^|(?<=\s))([\w][\w\-]*\.(?:png|jpg|jpeg|gif|webp|svg))(?=\s|$|[),;:。，])/gim,
+    (_match, filename) => {
+      const url = `/api/workspace/files?agentId=${encodeURIComponent(agentId)}&file=${encodeURIComponent(filename)}`;
+      return `![${filename}](${url})`;
+    }
+  );
+
+  return result;
+}
+
+export function MarkdownRenderer({ content, agentId }: { content: string; agentId?: string }) {
+  const processed = preprocessContent(content, agentId);
+
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
@@ -144,12 +191,24 @@ export function MarkdownRenderer({ content }: { content: string }) {
             </a>
           );
         },
+        img({ src, alt }) {
+          const imgSrc = typeof src === "string" ? src : undefined;
+          return (
+            <img
+              src={imgSrc}
+              alt={alt || ""}
+              className="max-h-80 max-w-full rounded-lg border my-2 cursor-pointer hover:opacity-90"
+              onClick={() => imgSrc && window.open(imgSrc, "_blank")}
+              onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+            />
+          );
+        },
         hr() {
           return <hr className="my-4 border-border" />;
         },
       }}
     >
-      {content}
+      {processed}
     </ReactMarkdown>
   );
 }

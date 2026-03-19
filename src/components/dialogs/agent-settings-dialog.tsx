@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -22,17 +22,20 @@ import {
   HeartPulse,
   Loader2,
 } from "lucide-react";
-import { getAgentAvatarUrl } from "@/lib/avatar";
+import { AvatarPicker } from "@/components/avatar-picker";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { getAgentAvatarUrl, isEmojiAvatar } from "@/lib/avatar";
 import { cn } from "@/lib/utils";
-import type { Agent, AgentSpecialty } from "@/types";
-
-const specialties: { value: AgentSpecialty; label: string }[] = [
-  { value: "general", label: "General" },
-  { value: "coding", label: "Coding" },
-  { value: "research", label: "Research" },
-  { value: "writing", label: "Writing" },
-  { value: "design", label: "Design" },
-];
+import type { Agent } from "@/types";
 
 type Section =
   | "general"
@@ -50,12 +53,13 @@ const sections: { id: Section; label: string; icon: React.ElementType }[] = [
   { id: "soul", label: "Soul & Persona", icon: Sparkles },
   { id: "identity", label: "Identity", icon: IdCard },
   { id: "instructions", label: "Instructions", icon: FileText },
-  { id: "skills", label: "Skills", icon: Puzzle },
   { id: "user", label: "User Profile", icon: UserCircle },
   { id: "tools", label: "Tools", icon: Wrench },
   { id: "heartbeat", label: "Heartbeat", icon: HeartPulse },
+  { id: "skills", label: "Skills", icon: Puzzle },
   { id: "advanced", label: "Advanced", icon: Settings },
 ];
+
 
 interface SkillInfo {
   name: string;
@@ -75,18 +79,19 @@ export function AgentSettingsDialog({
   const { actions } = useStore();
   const [name, setName] = useState(agent.name);
   const [description, setDescription] = useState(agent.description);
-  const [specialty, setSpecialty] = useState<AgentSpecialty>(agent.specialty);
+  const [avatar, setAvatar] = useState(agent.avatar || "");
   const [activeSection, setActiveSection] = useState<Section>("general");
   const [workspaceFiles, setWorkspaceFiles] = useState<Record<string, string>>(
     {}
   );
   const [skills, setSkills] = useState<SkillInfo[]>([]);
   const [loadingWorkspace, setLoadingWorkspace] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   useEffect(() => {
     setName(agent.name);
     setDescription(agent.description);
-    setSpecialty(agent.specialty);
+    setAvatar(agent.avatar || "");
     setActiveSection("general");
   }, [agent]);
 
@@ -118,7 +123,7 @@ export function AgentSettingsDialog({
     await actions.updateAgent(agent.id, {
       name: name.trim(),
       description: description.trim(),
-      specialty,
+      avatar: avatar || undefined,
     });
 
     // Save modified workspace files
@@ -133,10 +138,17 @@ export function AgentSettingsDialog({
     onOpenChange(false);
   }
 
-  async function handleDelete() {
+  function handleDelete() {
+    setShowDeleteConfirm(true);
+  }
+
+  async function confirmDelete() {
     await actions.deleteAgent(agent.id);
+    setShowDeleteConfirm(false);
     onOpenChange(false);
   }
+
+  const isDefaultAgent = agent.id === "main";
 
   const sectionLabel =
     sections.find((s) => s.id === activeSection)?.label ?? "General";
@@ -170,25 +182,30 @@ export function AgentSettingsDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-4xl p-0 gap-0 overflow-hidden [&>button]:hidden">
+        <DialogTitle className="sr-only">Agent Settings</DialogTitle>
         <div className="flex h-[600px]">
           {/* LEFT - Sidebar */}
           <div className="w-[200px] border-r bg-muted/40 flex flex-col">
             {/* Agent avatar + name */}
-            <div className="flex items-center gap-3 px-4 py-4">
-              <img
-                src={getAgentAvatarUrl(agent.id)}
-                alt={agent.name}
-                className="h-10 w-10 rounded-full bg-muted"
-              />
+            <div className="flex items-center gap-3 px-4 py-3 border-b">
+              <div className="shrink-0">
+                {isEmojiAvatar(avatar) ? (
+                  <span className="h-8 w-8 rounded-full bg-muted flex items-center justify-center text-lg">{avatar}</span>
+                ) : (
+                  <img
+                    src={avatar || getAgentAvatarUrl(agent.id)}
+                    alt={agent.name}
+                    className="h-8 w-8 rounded-full bg-muted object-cover"
+                  />
+                )}
+              </div>
               <div className="min-w-0">
                 <p className="text-sm font-semibold truncate">{agent.name}</p>
                 <p className="text-xs text-muted-foreground truncate">
-                  {agent.specialty}
+                  {agent.description || agent.specialty}
                 </p>
               </div>
             </div>
-
-            <Separator />
 
             {/* Navigation */}
             <nav className="flex flex-col gap-1 p-2 flex-1 overflow-y-auto">
@@ -215,22 +232,24 @@ export function AgentSettingsDialog({
 
             <Separator />
 
-            {/* Delete button */}
-            <div className="p-2">
-              <button
-                onClick={handleDelete}
-                className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-destructive hover:bg-destructive/10 transition-colors"
-              >
-                <Trash2 className="h-4 w-4" />
-                Delete Agent
-              </button>
-            </div>
+            {/* Delete button - hidden for default agent */}
+            {!isDefaultAgent && (
+              <div className="p-2">
+                <button
+                  onClick={handleDelete}
+                  className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-destructive hover:bg-destructive/10 transition-colors"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Delete Agent
+                </button>
+              </div>
+            )}
           </div>
 
           {/* RIGHT - Content */}
           <div className="flex-1 flex flex-col min-w-0">
             {/* Breadcrumb header */}
-            <div className="flex items-center gap-1.5 px-6 py-4 text-sm text-muted-foreground border-b">
+            <div className="flex items-center gap-1.5 px-6 py-3 text-sm text-muted-foreground border-b">
               <span>Settings</span>
               <ChevronRight className="h-3.5 w-3.5" />
               <span className="text-foreground font-medium">
@@ -242,6 +261,19 @@ export function AgentSettingsDialog({
             <div className="flex-1 overflow-y-auto px-6 py-5">
               {activeSection === "general" && (
                 <div className="space-y-5">
+                  <AvatarPicker
+                    value={avatar}
+                    onChange={setAvatar}
+                    shape="circle"
+                    seed={agent.id}
+                    fallback={
+                      <img
+                        src={getAgentAvatarUrl(agent.id)}
+                        alt={name}
+                        className="h-full w-full object-cover"
+                      />
+                    }
+                  />
                   <div>
                     <Label>Name</Label>
                     <Input
@@ -257,31 +289,6 @@ export function AgentSettingsDialog({
                       onChange={(e) => setDescription(e.target.value)}
                       className="mt-2"
                     />
-                  </div>
-                  <div>
-                    <Label>Specialty</Label>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {specialties.map((s) => (
-                        <button
-                          key={s.value}
-                          onClick={() => setSpecialty(s.value)}
-                          className={cn(
-                            "rounded-full border px-3 py-1 text-sm transition-colors",
-                            specialty === s.value
-                              ? "bg-primary text-primary-foreground border-primary"
-                              : "bg-background text-muted-foreground border-border hover:text-foreground"
-                          )}
-                        >
-                          {s.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div>
-                    <Label>Agent ID</Label>
-                    <code className="mt-2 block rounded-md bg-muted px-3 py-2 text-sm font-mono">
-                      {agent.id}
-                    </code>
                   </div>
                 </div>
               )}
@@ -429,24 +436,28 @@ export function AgentSettingsDialog({
                       configuration.
                     </p>
                   </div>
-                  <Separator />
-                  <div>
-                    <h3 className="text-sm font-semibold text-destructive">
-                      Danger Zone
-                    </h3>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      Permanently delete this agent and all associated data.
-                      This action cannot be undone.
-                    </p>
-                    <Button
-                      variant="destructive"
-                      onClick={handleDelete}
-                      className="mt-3"
-                    >
-                      <Trash2 className="h-4 w-4 mr-2" />
-                      Delete Agent
-                    </Button>
-                  </div>
+                  {!isDefaultAgent && (
+                    <>
+                      <Separator />
+                      <div>
+                        <h3 className="text-sm font-semibold text-destructive">
+                          Danger Zone
+                        </h3>
+                        <p className="text-sm text-muted-foreground mt-1">
+                          Permanently delete this agent and all associated data.
+                          This action cannot be undone.
+                        </p>
+                        <Button
+                          variant="destructive"
+                          onClick={handleDelete}
+                          className="mt-3"
+                        >
+                          <Trash2 className="h-4 w-4 mr-2" />
+                          Delete Agent
+                        </Button>
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
             </div>
@@ -463,6 +474,23 @@ export function AgentSettingsDialog({
           </div>
         </div>
       </DialogContent>
+
+      <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Agent</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete &quot;{agent.name}&quot;? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }
