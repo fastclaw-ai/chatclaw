@@ -1,5 +1,7 @@
 // ── Chat Streaming ──────────────────────────────────────────────────
 
+export type StreamingPhase = "connecting" | "thinking" | "tool-calling" | "responding";
+
 export type ChatState = "delta" | "final" | "error" | "aborted";
 
 export interface ChatMessageContent {
@@ -135,6 +137,7 @@ export interface AppState {
     targetType: ChatTargetType;
     targetId: string;
     sessionKey: string;
+    phase: StreamingPhase;
   }>;
 
   // UI

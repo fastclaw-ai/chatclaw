@@ -9,29 +9,75 @@ import {
   MessageCircle,
   Copy,
   RotateCcw,
+  Loader2,
+  Wrench,
+  ArrowDown,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { MarkdownRenderer } from "@/components/markdown-renderer";
 import { cn } from "@/lib/utils";
 import { getAgentAvatarUrl, getUserAvatarUrl } from "@/lib/avatar";
 import { ConversationPanel } from "@/components/conversation-panel";
+import type { StreamingPhase } from "@/types";
 
-function StreamingDots() {
+function StreamingIndicator({ phase }: { phase: StreamingPhase }) {
   return (
-    <span className="inline-flex gap-1 ml-1">
-      <span className="streaming-dot-1 inline-block h-1.5 w-1.5 rounded-full bg-muted-foreground" />
-      <span className="streaming-dot-2 inline-block h-1.5 w-1.5 rounded-full bg-muted-foreground" />
-      <span className="streaming-dot-3 inline-block h-1.5 w-1.5 rounded-full bg-muted-foreground" />
+    <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+      {phase === "connecting" && (
+        <>
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-primary" />
+          </span>
+          Connecting...
+        </>
+      )}
+      {phase === "thinking" && (
+        <>
+          <Loader2 className="h-3 w-3 animate-spin" />
+          Thinking...
+        </>
+      )}
+      {phase === "tool-calling" && (
+        <>
+          <Wrench className="h-3 w-3 animate-pulse" />
+          Using tools...
+        </>
+      )}
+      {phase === "responding" && (
+        <span className="inline-flex gap-0.5">
+          <span className="h-1.5 w-1.5 rounded-full bg-primary animate-bounce [animation-delay:-0.3s]" />
+          <span className="h-1.5 w-1.5 rounded-full bg-primary animate-bounce [animation-delay:-0.15s]" />
+          <span className="h-1.5 w-1.5 rounded-full bg-primary animate-bounce" />
+        </span>
+      )}
     </span>
   );
+}
+
+function ElapsedTimer({ active }: { active: boolean }) {
+  const [seconds, setSeconds] = useState(0);
+
+  useEffect(() => {
+    if (!active) { setSeconds(0); return; }
+    setSeconds(0);
+    const interval = setInterval(() => setSeconds(s => s + 1), 1000);
+    return () => clearInterval(interval);
+  }, [active]);
+
+  if (seconds < 2) return null;
+  const display = seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+  return <span className="text-[10px] text-muted-foreground ml-1">{display}</span>;
 }
 
 export function ChatArea() {
   const { state, actions } = useStore();
   const [input, setInput] = useState("");
   const [composing, setComposing] = useState(false);
+  const [showScrollButton, setShowScrollButton] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
 
   const target = state.activeChatTarget;
   const isConnected = state.connectionStatus === "connected";
@@ -70,6 +116,17 @@ export function ChatArea() {
       el.style.height = Math.min(el.scrollHeight, 200) + "px";
     }
   }, [input]);
+
+  const handleScroll = useCallback(() => {
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
+    setShowScrollButton(!isNearBottom);
+  }, []);
+
+  const scrollToBottom = useCallback(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, []);
 
   const handleSend = useCallback(() => {
     const text = input.trim();
@@ -150,7 +207,7 @@ export function ChatArea() {
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto min-h-0 px-4 py-4 space-y-4">
+      <div ref={messagesContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto min-h-0 px-4 py-4 space-y-4 relative">
         {state.messages.length === 0 && streamingEntries.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
             <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted mb-4">
@@ -269,17 +326,22 @@ export function ChatArea() {
                 />
               </div>
               <div className="min-w-0 flex-1">
-                <div className="flex items-baseline gap-2">
-                  <span className="font-semibold text-[15px] text-primary">
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-sm text-primary">
                     {identity?.name || agent?.name || "Agent"}
                   </span>
-                  <StreamingDots />
+                  <StreamingIndicator phase={streaming.phase} />
+                  <ElapsedTimer active={streaming.isStreaming} />
                 </div>
                 <div className="text-[15px] leading-relaxed text-foreground">
                   {streaming.content ? (
                     <MarkdownRenderer content={streaming.content} />
                   ) : (
-                    <span className="text-muted-foreground italic">Thinking...</span>
+                    <div className="flex items-center gap-2 py-2 text-muted-foreground text-sm">
+                      {streaming.phase === "connecting" && "Establishing connection..."}
+                      {streaming.phase === "thinking" && "Agent is thinking..."}
+                      {streaming.phase === "tool-calling" && "Agent is using tools..."}
+                    </div>
                   )}
                 </div>
               </div>
@@ -288,6 +350,17 @@ export function ChatArea() {
         })}
 
         <div ref={messagesEndRef} />
+
+        {/* Scroll to bottom button */}
+        {showScrollButton && (
+          <button
+            onClick={scrollToBottom}
+            className="sticky bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-1.5 rounded-full bg-background border shadow-lg px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors z-10"
+          >
+            <ArrowDown className="h-3 w-3" />
+            New messages
+          </button>
+        )}
       </div>
 
       {/* Input area */}

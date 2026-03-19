@@ -44,6 +44,7 @@ import type {
   AgentSpecialty,
   ChatTarget,
   ChatTargetType,
+  StreamingPhase,
 } from "@/types";
 
 // ── Session Key Helpers ────────────────────────────────────────────
@@ -212,6 +213,7 @@ function reducer(state: AppState, action: Action): AppState {
               targetType: action.targetType,
               targetId: action.targetId,
               sessionKey: action.sessionKey,
+              phase: "connecting" as StreamingPhase,
             },
           },
         };
@@ -222,18 +224,22 @@ function reducer(state: AppState, action: Action): AppState {
           Object.entries(state.streamingStates).filter(([k]) => k !== action.agentId)
         ),
       };
-    case "SET_STREAMING_CONTENT":
+    case "SET_STREAMING_CONTENT": {
+      const existing = state.streamingStates[action.agentId];
+      if (!existing) return state;
       return {
         ...state,
         streamingStates: {
           ...state.streamingStates,
           [action.agentId]: {
-            ...state.streamingStates[action.agentId],
+            ...existing,
             content: action.content,
             runId: action.runId,
+            phase: action.content ? "responding" : "thinking",
           },
         },
       };
+    }
     case "CLEAR_STREAMING":
       return {
         ...state,
