@@ -13,7 +13,7 @@ import { getAgentAvatarUrl, isEmojiAvatar } from "@/lib/avatar";
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupAction,
   SidebarGroupLabel, SidebarHeader, SidebarMenu, SidebarMenuButton,
-  SidebarMenuItem, SidebarMenuAction,
+  SidebarMenuItem, SidebarMenuAction, useSidebar,
 } from "@/components/ui/sidebar";
 import {
   Collapsible, CollapsibleContent, CollapsibleTrigger,
@@ -61,6 +61,7 @@ export function AppSidebar() {
   const { session } = useAuthSession();
   const { multiCompany } = useAppConfig();
   const { state, actions } = useStore();
+  const { isMobile, setOpenMobile } = useSidebar();
   const [showCreateCompany, setShowCreateCompany] = useState(false);
   const [showCreateAgent, setShowCreateAgent] = useState(false);
   const [showCreateTeam, setShowCreateTeam] = useState(false);
@@ -183,7 +184,10 @@ export function AppSidebar() {
                     <SidebarMenuItem key={agent.id}>
                       <SidebarMenuButton
                         isActive={isActive}
-                        onClick={() => actions.selectChatTarget({ type: "agent", id: agent.id })}
+                        onClick={() => {
+                          actions.selectChatTarget({ type: "agent", id: agent.id });
+                          if (isMobile) setOpenMobile(false);
+                        }}
                       >
                         {isEmojiAvatar(agent.avatar) ? (
                           <span className="h-5 w-5 flex items-center justify-center text-sm">{agent.avatar}</span>
@@ -234,7 +238,10 @@ export function AppSidebar() {
                     <SidebarMenuItem key={team.id}>
                       <SidebarMenuButton
                         isActive={isActive}
-                        onClick={() => actions.selectChatTarget({ type: "team", id: team.id })}
+                        onClick={() => {
+                          actions.selectChatTarget({ type: "team", id: team.id });
+                          if (isMobile) setOpenMobile(false);
+                        }}
                       >
                         {isEmojiAvatar(team.avatar) ? (
                           <span className="h-4 w-4 flex items-center justify-center text-sm">{team.avatar}</span>

@@ -23,6 +23,7 @@ import { cn } from "@/lib/utils";
 import { getAgentAvatarUrl, isEmojiAvatar } from "@/lib/avatar";
 import { loadUserProfile } from "@/components/dialogs/user-profile-dialog";
 import { ConversationPanel } from "@/components/conversation-panel";
+import { SidebarTrigger } from "@/components/ui/sidebar";
 import { v4 as uuidv4 } from "uuid";
 import type { StreamingPhase, MessageAttachment, ToolCallContent } from "@/types";
 
@@ -169,6 +170,7 @@ export function ChatArea() {
   const [composing, setComposing] = useState(false);
   const [attachments, setAttachments] = useState<MessageAttachment[]>([]);
   const [showScrollButton, setShowScrollButton] = useState(false);
+  const [showConvPanel, setShowConvPanel] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -331,7 +333,10 @@ export function ChatArea() {
   // No target selected — empty state
   if (!target) {
     return (
-      <div className="flex h-full flex-col items-center justify-center bg-background text-muted-foreground">
+      <div className="relative flex h-full flex-col items-center justify-center bg-background text-muted-foreground">
+        <div className="absolute top-3 left-3 md:hidden">
+          <SidebarTrigger />
+        </div>
         <img src="/logo.png" alt="ChatClaw" className="h-16 w-16 mb-4" />
         <p className="text-xl font-semibold text-foreground mb-1">Welcome to ChatClaw</p>
         <p className="text-sm">Select an agent for DM or a team for group chat</p>
@@ -357,6 +362,7 @@ export function ChatArea() {
       <div className="flex flex-1 flex-col min-w-0 bg-background">
       {/* Chat header */}
       <div className="flex h-12 items-center gap-2 px-4 border-b shrink-0">
+        <SidebarTrigger className="h-7 w-7 md:hidden" />
         {target.type === "agent" ? (
           isEmojiAvatar(targetAgent?.avatar) ? (
             <span className="h-7 w-7 rounded-full bg-muted flex items-center justify-center text-base shrink-0">{targetAgent?.avatar}</span>
@@ -408,6 +414,13 @@ export function ChatArea() {
             )}
           </div>
         )}
+        <button
+          onClick={() => setShowConvPanel(!showConvPanel)}
+          className="md:hidden ml-auto p-1.5 rounded-md hover:bg-muted text-muted-foreground"
+          title="Conversations"
+        >
+          <MessageCircle className="h-4 w-4" />
+        </button>
       </div>
 
       {/* Messages */}
@@ -517,7 +530,7 @@ export function ChatArea() {
                         key={att.id}
                         src={att.url}
                         alt={att.name}
-                        className="max-h-64 max-w-sm rounded-lg border cursor-pointer hover:opacity-90"
+                        className="max-h-64 max-w-[calc(100vw-120px)] md:max-w-sm rounded-lg border cursor-pointer hover:opacity-90"
                         onClick={() => window.open(att.url, "_blank")}
                       />
                     ))}
@@ -679,7 +692,7 @@ export function ChatArea() {
         </div>
 
         {/* Toolbar row - bottom */}
-        <div className="flex items-center gap-1 px-4 pt-1.5 pb-4">
+        <div className="flex items-center gap-1 px-2 pt-1.5 pb-2 md:px-4 md:pb-4">
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={!isConnected}
@@ -725,8 +738,20 @@ export function ChatArea() {
       </div>
       </div>
 
-      {/* Right panel */}
-      <ConversationPanel />
+      {/* Right panel - desktop */}
+      <div className="hidden md:flex">
+        <ConversationPanel />
+      </div>
+
+      {/* Right panel - mobile overlay */}
+      {showConvPanel && (
+        <div className="fixed inset-0 z-50 md:hidden">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setShowConvPanel(false)} />
+          <div className="absolute right-0 top-0 bottom-0 w-[280px] bg-background border-l shadow-xl">
+            <ConversationPanel />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
