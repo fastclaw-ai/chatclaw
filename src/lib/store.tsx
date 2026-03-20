@@ -304,7 +304,14 @@ const StoreContext = createContext<StoreContextValue | null>(null);
 
 // ── Provider ────────────────────────────────────────────────────────
 
-export function StoreProvider({ children }: { children: React.ReactNode }) {
+interface InitialRoute {
+  companyId?: string;
+  targetType?: "agent" | "team";
+  targetId?: string;
+  conversationId?: string;
+}
+
+export function StoreProvider({ children, initialRoute }: { children: React.ReactNode; initialRoute?: InitialRoute }) {
   const [state, dispatch] = useReducer(reducer, initialState);
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -908,6 +915,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     async function init() {
       const companies = await getAllCompanies();
 
+      let activeCompanyId: string | null = null;
+
       if (companies.length === 0) {
         // Bootstrap from OpenClaw config
         try {
@@ -928,6 +937,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
             await dbCreateCompany(company);
             dispatch({ type: "ADD_COMPANY", company });
             dispatch({ type: "SET_ACTIVE_COMPANY", id: companyId });
+            activeCompanyId = companyId;
 
             // Sync agents from gateway (works for both local and remote)
             let agentsToCreate = data.agents;
@@ -966,15 +976,41 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         }
       } else {
         dispatch({ type: "SET_COMPANIES", companies });
-        const firstId = companies[0].id;
-        dispatch({ type: "SET_ACTIVE_COMPANY", id: firstId });
+
+        // Use route-specified company or fall back to first
+        const targetCompanyId = (initialRoute?.companyId && companies.find(c => c.id === initialRoute.companyId))
+          ? initialRoute.companyId
+          : companies[0].id;
+
+        dispatch({ type: "SET_ACTIVE_COMPANY", id: targetCompanyId });
+        activeCompanyId = targetCompanyId;
 
         const [agents, teams] = await Promise.all([
-          getAgentsByCompany(firstId),
-          getTeamsByCompany(firstId),
+          getAgentsByCompany(targetCompanyId),
+          getTeamsByCompany(targetCompanyId),
         ]);
         dispatch({ type: "SET_AGENTS", agents });
         dispatch({ type: "SET_TEAMS", teams });
+
+        // Apply route-specified target and conversation
+        if (initialRoute?.targetType && initialRoute?.targetId) {
+          const target: ChatTarget = { type: initialRoute.targetType, id: initialRoute.targetId };
+          dispatch({ type: "SET_CHAT_TARGET", target });
+
+          const convs = await getConversationsByTarget(target.type, target.id);
+          dispatch({ type: "SET_CONVERSATIONS", conversations: convs });
+
+          if (initialRoute.conversationId && convs.find(c => c.id === initialRoute.conversationId)) {
+            dispatch({ type: "SET_ACTIVE_CONVERSATION", id: initialRoute.conversationId });
+            const msgs = await getMessagesByConversation(initialRoute.conversationId);
+            dispatch({ type: "SET_MESSAGES", messages: msgs });
+          } else if (convs.length > 0) {
+            const latest = convs[0];
+            dispatch({ type: "SET_ACTIVE_CONVERSATION", id: latest.id });
+            const msgs = await getMessagesByConversation(latest.id);
+            dispatch({ type: "SET_MESSAGES", messages: msgs });
+          }
+        }
       }
 
       dispatch({ type: "SET_INITIALIZED" });
