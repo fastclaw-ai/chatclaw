@@ -531,6 +531,62 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     dispatch({ type: "SET_TEAMS", teams });
 
     setTimeout(() => connectGateway(), 50);
+
+    // Auto-sync agents from gateway
+    const company = stateRef.current.companies.find((c) => c.id === id);
+    if (company?.gatewayUrl && company?.gatewayToken && company?.runtimeType === "openclaw") {
+      try {
+        const res = await fetch("/api/agents/sync", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ gatewayUrl: company.gatewayUrl, gatewayToken: company.gatewayToken }),
+        });
+        const data = await res.json();
+        if (data.agents && data.agents.length > 0) {
+          const existingAgents = (await getAgentsByCompany(id));
+          const existingIds = new Set(existingAgents.map((a) => a.id));
+          for (const agentData of data.agents) {
+            if (!existingIds.has(agentData.id)) {
+              const agent: Agent = {
+                id: agentData.id,
+                companyId: id,
+                name: agentData.name || agentData.id,
+                description: "",
+                specialty: "general",
+                createdAt: Date.now(),
+              };
+              try {
+                await dbCreateAgent(agent);
+                dispatch({ type: "ADD_AGENT", agent });
+              } catch {
+                // Agent may already exist in another company, skip
+              }
+            }
+          }
+        } else {
+          // No agents from gateway — create a default agent with unique ID for this company
+          const existingAgents = (await getAgentsByCompany(id));
+          if (existingAgents.length === 0) {
+            const defaultAgent: Agent = {
+              id: `default-${id}`,
+              companyId: id,
+              name: "Default",
+              description: "",
+              specialty: "general",
+              createdAt: Date.now(),
+            };
+            try {
+              await dbCreateAgent(defaultAgent);
+              dispatch({ type: "ADD_AGENT", agent: defaultAgent });
+            } catch {
+              // skip
+            }
+          }
+        }
+      } catch {
+        // Sync failed silently
+      }
+    }
   }, [disconnectGateway, connectGateway]);
 
   const createAgentAction = useCallback(async (opts: {
@@ -548,11 +604,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       createdAt: Date.now(),
     };
 
-    await dbCreateAgent(agent);
-    dispatch({ type: "ADD_AGENT", agent });
-
-    try {
-      await fetch("/api/agents/create", {
+    // Create on gateway first — fail fast if gateway rejects
+    const company = state.companies.find((c) => c.id === opts.companyId);
+    if (company?.gatewayUrl && company?.gatewayToken) {
+      const res = await fetch("/api/agents/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -560,14 +615,22 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           name: agent.name,
           description: agent.description,
           specialty: agent.specialty,
+          gatewayUrl: company.gatewayUrl,
+          gatewayToken: company.gatewayToken,
         }),
       });
-    } catch {
-      // Non-critical
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `Failed to create agent on gateway (${res.status})`);
+      }
     }
 
+    // Only save to local DB after gateway succeeds
+    await dbCreateAgent(agent);
+    dispatch({ type: "ADD_AGENT", agent });
+
     return agent;
-  }, []);
+  }, [state.companies]);
 
   const updateAgentAction = useCallback(async (id: string, updates: Partial<Agent>) => {
     await dbUpdateAgent(id, updates);
@@ -575,17 +638,29 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const deleteAgentAction = useCallback(async (id: string) => {
+    const agent = state.agents.find((a) => a.id === id);
+    const company = agent ? state.companies.find((c) => c.id === agent.companyId) : undefined;
+
     await dbDeleteAgent(id);
     dispatch({ type: "REMOVE_AGENT", id });
 
     try {
-      await fetch("/api/agents/delete", {
+      const res = await fetch("/api/agents/delete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ agentId: id }),
+        body: JSON.stringify({
+          agentId: id,
+          gatewayUrl: company?.gatewayUrl,
+          gatewayToken: company?.gatewayToken,
+
+        }),
       });
-    } catch {
-      // Non-critical
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        console.error("[deleteAgent] Failed to update gateway config:", data.error || res.status);
+      }
+    } catch (e) {
+      console.error("[deleteAgent] Failed to update gateway config:", e);
     }
 
     // Clear chat if this was the active target
@@ -594,7 +669,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       dispatch({ type: "SET_CHAT_TARGET", target: null });
       dispatch({ type: "SET_MESSAGES", messages: [] });
     }
-  }, []);
+  }, [state.agents, state.companies]);
 
   const createTeamAction = useCallback(async (opts: { companyId: string; name: string; description?: string; agentIds: string[] }) => {
     const team: AgentTeam = {
@@ -628,8 +703,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const selectChatTargetAction = useCallback(async (target: ChatTarget) => {
     dispatch({ type: "SET_CHAT_TARGET", target });
 
-    // Load conversations for this target
-    const convs = await getConversationsByTarget(target.type, target.id);
+    // Load conversations for this target, filtered by active company
+    const companyId = stateRef.current.activeCompanyId || undefined;
+    const convs = await getConversationsByTarget(target.type, target.id, companyId);
     dispatch({ type: "SET_CONVERSATIONS", conversations: convs });
 
     if (convs.length > 0) {

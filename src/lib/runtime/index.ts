@@ -113,12 +113,18 @@ export class RuntimeClient implements RuntimeProvider {
 
       if (!res.ok) {
         const errorText = await res.text();
+        let error = `HTTP ${res.status}: ${errorText}`;
+        if (res.status === 404) {
+          error = 'Gateway HTTP endpoint not found. Please add the following to your OpenClaw config:\n\n```json\n{\n  "gateway": {\n    "http": {\n      "endpoints": {\n        "chatCompletions": {\n          "enabled": true\n        }\n      }\n    }\n  }\n}\n```';
+        } else if (res.status === 502 || res.status === 503) {
+          error = "Gateway is restarting. Please try again in a few seconds.";
+        }
         this.handlers.onChatEvent?.({
           runId,
           sessionKey,
           state: "error",
           message: { role: "assistant", content: [{ type: "text", text: "" }], timestamp: Date.now() },
-          error: `HTTP ${res.status}: ${errorText}`,
+          error,
         });
         return;
       }
@@ -134,6 +140,7 @@ export class RuntimeClient implements RuntimeProvider {
       let currentToolCalls: ToolCallContent[] = [];
 
       const IDLE_TIMEOUT = 3000; // 3s idle = treat as message boundary
+      let everReceivedContent = false;
 
       while (true) {
         // Race between reading data and idle timeout
@@ -227,6 +234,19 @@ export class RuntimeClient implements RuntimeProvider {
               continue;
             }
 
+            // Handle error responses in the stream
+            if (parsed.error) {
+              const errMsg = typeof parsed.error === "string" ? parsed.error : parsed.error.message || JSON.stringify(parsed.error);
+              this.handlers.onChatEvent?.({
+                runId,
+                sessionKey,
+                state: "error",
+                message: { role: "assistant", content: [{ type: "text", text: "" }], timestamp: Date.now() },
+                error: errMsg,
+              });
+              return;
+            }
+
             const choice = parsed.choices?.[0];
             const delta = choice?.delta;
             if (!delta) continue;
@@ -234,6 +254,7 @@ export class RuntimeClient implements RuntimeProvider {
             // Handle text content
             if (delta.content) {
               accumulated += delta.content;
+              everReceivedContent = true;
               this.handlers.onChatEvent?.({
                 runId,
                 sessionKey,
@@ -322,6 +343,16 @@ export class RuntimeClient implements RuntimeProvider {
           message: { role: "assistant", content: [{ type: "text", text: accumulated }], timestamp: Date.now() },
           toolCalls: currentToolCalls.length > 0 ? currentToolCalls : undefined,
         });
+      } else if (!everReceivedContent) {
+        // Stream ended with no content at all — gateway likely encountered an error
+        this.handlers.onChatEvent?.({
+          runId,
+          sessionKey,
+          state: "error",
+          message: { role: "assistant", content: [{ type: "text", text: "" }], timestamp: Date.now() },
+          error: "No response from agent. The gateway may not have a model provider configured. Check your OpenClaw agent configuration.",
+        });
+        return;
       }
       // Signal stream end
       this.handlers.onChatEvent?.({
@@ -373,42 +404,41 @@ export type { RuntimeType, RuntimeConfig, RuntimeEventHandler, RuntimeProvider }
 export async function testConnection(
   url: string,
   token: string,
-  runtimeType: string = "openclaw"
-): Promise<{ ok: boolean; error?: string }> {
-  const baseUrl = url.replace(/^ws:\/\//, "http://").replace(/^wss:\/\//, "https://");
+  _runtimeType: string = "openclaw"
+): Promise<{ ok: boolean; error?: string; configHint?: string }> {
   try {
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-      "x-gateway-url": baseUrl,
-      "x-gateway-token": token,
-    };
-
-    if (runtimeType === "openclaw") {
-      headers["x-openclaw-agent-id"] = "main";
-    }
-
-    const res = await fetch("/api/chat", {
+    const res = await fetch("/api/test-connection", {
       method: "POST",
-      headers,
-      body: JSON.stringify({
-        model: runtimeType === "openclaw" ? "openclaw" : "test",
-        messages: [{ role: "user", content: "ping" }],
-        max_tokens: 1,
-      }),
-      signal: AbortSignal.timeout(10_000),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url, token }),
+      signal: AbortSignal.timeout(15_000),
     });
-    if (res.status === 401 || res.status === 403) {
-      return { ok: false, error: "Authentication failed – check your token" };
-    }
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      return { ok: false, error: `Server returned ${res.status}${text ? `: ${text.slice(0, 100)}` : ""}` };
-    }
-    return { ok: true };
+    const data = await res.json();
+    return { ok: !!data.ok, error: data.error, configHint: data.configHint };
   } catch (e) {
     if (e instanceof Error && e.name === "TimeoutError") {
       return { ok: false, error: "Connection timed out" };
     }
     return { ok: false, error: `Connection failed: ${e}` };
   }
+}
+
+// ── Gateway WebSocket RPC Helper ──────────────────────────────────
+
+/**
+ * Call a gateway WebSocket RPC method via /api/gateway/rpc proxy.
+ */
+export async function gatewayRpc(
+  gatewayUrl: string,
+  gatewayToken: string,
+  method: string,
+  params: Record<string, unknown> = {},
+): Promise<{ ok: boolean; payload?: Record<string, unknown>; error?: { code: string; message: string } }> {
+  const res = await fetch("/api/gateway/rpc", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ gatewayUrl, gatewayToken, method, params }),
+    signal: AbortSignal.timeout(20_000),
+  });
+  return res.json();
 }

@@ -133,8 +133,12 @@ export async function getMessagesByConversation(conversationId: string): Promise
 
 // ── Conversation helpers ──────────────────────────────────────────
 
-export async function getConversationsByTarget(targetType: string, targetId: string): Promise<Conversation[]> {
-  return db.conversations.where("[targetType+targetId]").equals([targetType, targetId]).reverse().sortBy("updatedAt");
+export async function getConversationsByTarget(targetType: string, targetId: string, companyId?: string): Promise<Conversation[]> {
+  let results = await db.conversations.where("[targetType+targetId]").equals([targetType, targetId]).reverse().sortBy("updatedAt");
+  if (companyId) {
+    results = results.filter(c => c.companyId === companyId);
+  }
+  return results;
 }
 
 export async function createConversation(conv: Conversation): Promise<void> {

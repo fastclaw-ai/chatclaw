@@ -1,45 +1,54 @@
 import { NextResponse } from "next/server";
-import { readFile, writeFile, rm } from "fs/promises";
-import { homedir } from "os";
-import { join } from "path";
-import { existsSync } from "fs";
+import { connectGatewayWs } from "@/lib/gateway-ws";
 
 export async function POST(request: Request) {
   try {
-    const { agentId } = await request.json();
+    const { agentId, gatewayUrl, gatewayToken } = await request.json();
 
     if (!agentId) {
       return NextResponse.json({ error: "agentId is required" }, { status: 400 });
     }
 
-    const homeDir = homedir();
-    const openclawDir = join(homeDir, ".openclaw");
-    const workspaceDir = join(openclawDir, `workspace-${agentId}`);
-    const configPath = join(openclawDir, "openclaw.json");
-
-    // Remove workspace directory
-    if (existsSync(workspaceDir)) {
-      await rm(workspaceDir, { recursive: true, force: true });
+    if (!gatewayUrl || !gatewayToken) {
+      return NextResponse.json({ error: "gatewayUrl and gatewayToken are required" }, { status: 400 });
     }
 
-    // Update openclaw.json - remove agent from list
-    if (existsSync(configPath)) {
-      try {
-        const raw = await readFile(configPath, "utf-8");
-        const config = JSON.parse(raw);
+    const conn = await connectGatewayWs({ gatewayUrl, gatewayToken });
 
-        if (config.agents?.list && Array.isArray(config.agents.list)) {
-          config.agents.list = config.agents.list.filter(
-            (a: { id: string }) => a.id !== agentId
-          );
-          await writeFile(configPath, JSON.stringify(config, null, 2), "utf-8");
-        }
-      } catch {
-        // Config parse error, skip update
+    try {
+      // Get current config
+      const configRes = await conn.call("config.get", {});
+      if (!configRes.ok) {
+        return NextResponse.json({ error: `Failed to fetch config: ${configRes.error?.message}` }, { status: 502 });
       }
-    }
 
-    return NextResponse.json({ ok: true });
+      const payload = configRes.payload || {};
+      const configHash = payload.hash as string;
+      let config: Record<string, unknown>;
+      if (payload.parsed && typeof payload.parsed === "object") {
+        config = payload.parsed as Record<string, unknown>;
+      } else if (typeof payload.raw === "string") {
+        try { config = JSON.parse(payload.raw as string); } catch { config = {}; }
+      } else {
+        config = {};
+      }
+
+      // Remove agent from list
+      const agents = (config.agents || {}) as Record<string, unknown>;
+      if (agents.list && Array.isArray(agents.list)) {
+        agents.list = (agents.list as Array<{ id: string }>).filter(a => a.id !== agentId);
+      }
+
+      // Write config back
+      const setRes = await conn.call("config.apply", { raw: JSON.stringify(config, null, 2), baseHash: configHash });
+      if (!setRes.ok) {
+        return NextResponse.json({ error: `Failed to write config: ${setRes.error?.message}` }, { status: 502 });
+      }
+
+      return NextResponse.json({ ok: true });
+    } finally {
+      conn.close();
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });

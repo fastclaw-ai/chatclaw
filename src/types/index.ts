@@ -73,6 +73,8 @@ export interface Company {
   runtimeType: RuntimeType;
   gatewayUrl: string;
   gatewayToken: string;
+  gatewayProxyUrl?: string;
+  deviceToken?: string;
   model?: string;
   channels?: string;
   customHeaders?: string;

@@ -1,8 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readFile, writeFile, readdir } from "fs/promises";
-import { homedir } from "os";
-import { join, resolve } from "path";
-import { existsSync } from "fs";
+import { gatewayRpcCall } from "@/lib/gateway-ws";
 
 const WORKSPACE_FILES = [
   "SOUL.md",
@@ -12,72 +9,98 @@ const WORKSPACE_FILES = [
   "TOOLS.md",
   "HEARTBEAT.md",
   "BOOTSTRAP.md",
+  "MEMORY.md",
 ];
-
-function getWorkspacePath(agentId: string): string {
-  if (agentId === "main") {
-    return join(homedir(), ".openclaw", "workspace-main");
-  }
-  const byId = join(homedir(), ".openclaw", `workspace-${agentId}`);
-  if (existsSync(byId)) return byId;
-  return join(homedir(), ".openclaw", "workspace");
-}
 
 export async function GET(req: NextRequest) {
   const agentId = req.nextUrl.searchParams.get("agentId") || "main";
   const file = req.nextUrl.searchParams.get("file");
+  const gatewayUrl = req.headers.get("x-gateway-url") || "";
+  const gatewayToken = req.headers.get("x-gateway-token") || "";
 
-  const workspacePath = getWorkspacePath(agentId);
+  if (!gatewayUrl || !gatewayToken) {
+    return NextResponse.json({ error: "Missing gateway credentials" }, { status: 400 });
+  }
 
+  // Resolve the actual agent ID (gateway doesn't accept "main")
+  const resolvedAgentId = await resolveAgentId(gatewayUrl, gatewayToken, agentId);
+
+  // Read a single file
   if (file) {
     if (!WORKSPACE_FILES.includes(file)) {
       return NextResponse.json({ error: "Invalid file" }, { status: 400 });
     }
-    const filePath = join(workspacePath, file);
-    try {
-      const content = await readFile(filePath, "utf-8");
-      return NextResponse.json({ content });
-    } catch {
-      return NextResponse.json({ content: "" });
-    }
+    const content = await readFile(gatewayUrl, gatewayToken, resolvedAgentId, file);
+    return NextResponse.json({ content });
   }
 
+  // Read all files
   const files: Record<string, string> = {};
-  for (const f of WORKSPACE_FILES) {
-    try {
-      files[f] = await readFile(join(workspacePath, f), "utf-8");
-    } catch {
-      files[f] = "";
-    }
-  }
+  await Promise.all(
+    WORKSPACE_FILES.map(async (f) => {
+      files[f] = await readFile(gatewayUrl, gatewayToken, resolvedAgentId, f);
+    })
+  );
 
-  let skills: string[] = [];
-  const skillsDir = join(workspacePath, "skills");
-  try {
-    const entries = await readdir(skillsDir);
-    skills = entries.filter((e) => !e.startsWith("."));
-  } catch {
-    // No skills dir
-  }
-
-  return NextResponse.json({ files, skills, workspacePath });
+  return NextResponse.json({ files });
 }
 
 export async function POST(req: NextRequest) {
   const { agentId, file, content } = await req.json();
+  const gatewayUrl = req.headers.get("x-gateway-url") || "";
+  const gatewayToken = req.headers.get("x-gateway-token") || "";
+
+  if (!gatewayUrl || !gatewayToken) {
+    return NextResponse.json({ error: "Missing gateway credentials" }, { status: 400 });
+  }
 
   if (!file || !WORKSPACE_FILES.includes(file)) {
     return NextResponse.json({ error: "Invalid file" }, { status: 400 });
   }
 
-  const workspacePath = getWorkspacePath(agentId || "main");
-  const filePath = join(workspacePath, file);
+  const resolvedAgentId = await resolveAgentId(gatewayUrl, gatewayToken, agentId || "main");
 
-  const resolved = resolve(filePath);
-  if (!resolved.startsWith(resolve(workspacePath))) {
-    return NextResponse.json({ error: "Invalid path" }, { status: 400 });
+  try {
+    const result = await gatewayRpcCall(gatewayUrl, gatewayToken, "agents.files.set", {
+      agentId: resolvedAgentId,
+      name: file,
+      content,
+    });
+    if (!result.ok) {
+      return NextResponse.json({ error: result.error?.message || "Failed to write" }, { status: 502 });
+    }
+    return NextResponse.json({ ok: true });
+  } catch (e) {
+    return NextResponse.json({ error: `Failed to write: ${e}` }, { status: 500 });
   }
+}
 
-  await writeFile(filePath, content, "utf-8");
-  return NextResponse.json({ ok: true });
+// Gateway doesn't accept "main" as agent ID — resolve to the default agent ID
+async function resolveAgentId(gatewayUrl: string, gatewayToken: string, agentId: string): Promise<string> {
+  if (agentId !== "main") return agentId;
+  try {
+    const result = await gatewayRpcCall(gatewayUrl, gatewayToken, "agents.list", {});
+    if (result.ok && result.payload) {
+      const defaultId = result.payload.defaultId as string;
+      if (defaultId) return defaultId;
+      const agents = (result.payload.agents || result.payload.list || []) as Array<{ id: string }>;
+      if (agents.length > 0) return agents[0].id;
+    }
+  } catch {
+    // fallback
+  }
+  return agentId;
+}
+
+async function readFile(gatewayUrl: string, gatewayToken: string, agentId: string, file: string): Promise<string> {
+  try {
+    const result = await gatewayRpcCall(gatewayUrl, gatewayToken, "agents.files.get", { agentId, name: file });
+    if (result.ok && result.payload) {
+      const fileData = result.payload.file as Record<string, unknown> | undefined;
+      return (fileData?.content as string) || (result.payload.content as string) || "";
+    }
+  } catch {
+    // ignore
+  }
+  return "";
 }

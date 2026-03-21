@@ -97,8 +97,8 @@ export async function getMessagesByConversation(conversationId: string): Promise
 
 // ── Conversation helpers ──────────────────────────────────────────
 
-export async function getConversationsByTarget(targetType: string, targetId: string): Promise<Conversation[]> {
-  const res = (await call("getConversationsByTarget", { targetType, targetId })) as { data: Conversation[] };
+export async function getConversationsByTarget(targetType: string, targetId: string, companyId?: string): Promise<Conversation[]> {
+  const res = (await call("getConversationsByTarget", { targetType, targetId, companyId })) as { data: Conversation[] };
   return res.data;
 }
 

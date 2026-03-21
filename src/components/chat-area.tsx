@@ -16,6 +16,7 @@ import {
   Paperclip,
   X,
   File as FileIcon,
+  MoreVertical,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { MarkdownRenderer } from "@/components/markdown-renderer";
@@ -416,10 +417,10 @@ export function ChatArea() {
         )}
         <button
           onClick={() => setShowConvPanel(!showConvPanel)}
-          className="md:hidden ml-auto p-1.5 rounded-md hover:bg-muted text-muted-foreground"
+          className="ml-auto p-1.5 rounded-md hover:bg-muted text-muted-foreground"
           title="Conversations"
         >
-          <MessageCircle className="h-4 w-4" />
+          <MoreVertical className="h-4 w-4" />
         </button>
       </div>
 
@@ -738,17 +739,12 @@ export function ChatArea() {
       </div>
       </div>
 
-      {/* Right panel - desktop */}
-      <div className="hidden md:flex">
-        <ConversationPanel />
-      </div>
-
-      {/* Right panel - mobile overlay */}
+      {/* Conversation panel overlay */}
       {showConvPanel && (
-        <div className="fixed inset-0 z-50 md:hidden">
+        <div className="fixed inset-0 z-50">
           <div className="absolute inset-0 bg-black/50" onClick={() => setShowConvPanel(false)} />
-          <div className="absolute right-0 top-0 bottom-0 w-[280px] bg-background border-l shadow-xl">
-            <ConversationPanel />
+          <div className="absolute right-0 top-0 bottom-0 w-[300px] max-w-[80vw] bg-background border-l shadow-xl">
+            <ConversationPanel onClose={() => setShowConvPanel(false)} />
           </div>
         </div>
       )}

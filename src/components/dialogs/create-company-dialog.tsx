@@ -44,6 +44,7 @@ export function CreateCompanyDialog({
   const [urlError, setUrlError] = useState("");
   const [testState, setTestState] = useState<"idle" | "testing" | "success" | "error">("idle");
   const [testError, setTestError] = useState("");
+  const [testConfigHint, setTestConfigHint] = useState("");
 
   // Auto-detect gateway on dialog open
   useEffect(() => {
@@ -64,12 +65,14 @@ export function CreateCompanyDialog({
     if (!gatewayUrl || !gatewayToken) return;
     setTestState("testing");
     setTestError("");
+    setTestConfigHint("");
     const result = await testConnection(gatewayUrl, gatewayToken, "openclaw");
     if (result.ok) {
       setTestState("success");
     } else {
       setTestState("error");
       setTestError(result.error || "Connection failed");
+      if (result.configHint) setTestConfigHint(result.configHint);
     }
   }
 
@@ -198,7 +201,15 @@ export function CreateCompanyDialog({
             </Button>
           </div>
           {testError && (
-            <p className="text-sm text-destructive">{testError}</p>
+            <div className="space-y-2">
+              <p className="text-sm text-destructive">{testError}</p>
+              {testConfigHint && (
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Add the following to your OpenClaw config:</p>
+                  <pre className="text-xs bg-muted rounded-md p-3 font-mono overflow-x-auto select-all">{testConfigHint}</pre>
+                </div>
+              )}
+            </div>
           )}
         </div>
         <DialogFooter>

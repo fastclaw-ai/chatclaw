@@ -8,23 +8,49 @@ export async function POST(req: NextRequest) {
 
   const body = await req.text();
 
-  const baseUrl = gatewayUrl
+  let baseUrl = gatewayUrl
     .replace(/^ws:\/\//, "http://")
     .replace(/^wss:\/\//, "https://");
+  if (!baseUrl.startsWith("http://") && !baseUrl.startsWith("https://")) {
+    baseUrl = "https://" + baseUrl;
+  }
 
-  const upstream = await fetch(`${baseUrl}/v1/chat/completions`, {
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${gatewayToken}`,
+    "Content-Type": "application/json",
+    "x-openclaw-agent-id": agentId,
+    "x-openclaw-session-key": sessionKey,
+  };
+
+  console.log(`[chat] requesting: ${baseUrl}/v1/chat/completions, agent: ${agentId}, session: ${sessionKey}`);
+
+  // Manual redirect to preserve Authorization header across HTTP→HTTPS
+  let upstream = await fetch(`${baseUrl}/v1/chat/completions`, {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${gatewayToken}`,
-      "Content-Type": "application/json",
-      "x-openclaw-agent-id": agentId,
-      "x-openclaw-session-key": sessionKey,
-    },
+    headers,
     body,
+    redirect: "manual",
   });
+
+  if (upstream.status >= 300 && upstream.status < 400) {
+    const location = upstream.headers.get("location");
+    if (location) {
+      const redirectUrl = location.startsWith("http")
+        ? location
+        : new URL(location, `${baseUrl}/v1/chat/completions`).toString();
+      upstream = await fetch(redirectUrl, {
+        method: "POST",
+        headers,
+        body,
+      });
+    }
+  }
+
+  console.log(`[chat] upstream status: ${upstream.status}, content-type: ${upstream.headers.get("content-type")}`);
 
   if (!upstream.ok) {
     const errorText = await upstream.text();
+    console.log(`[chat] upstream error: ${errorText.slice(0, 500)}`);
     return new Response(errorText, { status: upstream.status });
   }
 

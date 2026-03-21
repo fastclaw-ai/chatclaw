@@ -10,18 +10,15 @@ import { Separator } from "@/components/ui/separator";
 import { useStore } from "@/lib/store";
 import {
   User,
-  Sparkles,
+  FileCode,
   Puzzle,
-  Wrench,
   Trash2,
   ChevronRight,
   Settings,
-  IdCard,
-  FileText,
-  UserCircle,
-  HeartPulse,
   Loader2,
   X,
+  RefreshCw,
+  Save,
 } from "lucide-react";
 import { AvatarPicker } from "@/components/avatar-picker";
 import {
@@ -38,29 +35,24 @@ import { getAgentAvatarUrl, isEmojiAvatar } from "@/lib/avatar";
 import { cn } from "@/lib/utils";
 import type { Agent } from "@/types";
 
-type Section =
-  | "general"
-  | "soul"
-  | "identity"
-  | "instructions"
-  | "skills"
-  | "user"
-  | "tools"
-  | "heartbeat"
-  | "advanced";
+type Section = "general" | "files" | "skills" | "advanced";
 
-const sections: { id: Section; label: string; icon: React.ElementType }[] = [
+const sectionList: { id: Section; label: string; icon: React.ElementType }[] = [
   { id: "general", label: "General", icon: User },
-  { id: "soul", label: "Soul & Persona", icon: Sparkles },
-  { id: "identity", label: "Identity", icon: IdCard },
-  { id: "instructions", label: "Instructions", icon: FileText },
-  { id: "user", label: "User Profile", icon: UserCircle },
-  { id: "tools", label: "Tools", icon: Wrench },
-  { id: "heartbeat", label: "Heartbeat", icon: HeartPulse },
+  { id: "files", label: "Files", icon: FileCode },
   { id: "skills", label: "Skills", icon: Puzzle },
   { id: "advanced", label: "Advanced", icon: Settings },
 ];
 
+const FILE_TABS = [
+  { file: "SOUL.md", label: "Soul", desc: "Personality, tone, and behavior." },
+  { file: "IDENTITY.md", label: "Identity", desc: "Agent name, ID, specialty, and role." },
+  { file: "AGENTS.md", label: "Instructions", desc: "Guidelines and agent-specific rules." },
+  { file: "USER.md", label: "User", desc: "Information about the human user." },
+  { file: "TOOLS.md", label: "Tools", desc: "Tool configuration and usage notes." },
+  { file: "HEARTBEAT.md", label: "Heartbeat", desc: "Periodic tasks that run on a schedule." },
+  { file: "MEMORY.md", label: "Memory", desc: "Persistent context across conversations." },
+];
 
 interface SkillInfo {
   name: string;
@@ -77,16 +69,24 @@ export function AgentSettingsDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const { actions } = useStore();
+  const { state, actions } = useStore();
+  const activeCompany = state.companies.find((c) => c.id === state.activeCompanyId);
+  const gwHeaders: Record<string, string> = {
+    "x-gateway-url": activeCompany?.gatewayUrl || "",
+    "x-gateway-token": activeCompany?.gatewayToken || "",
+  };
+
   const [name, setName] = useState(agent.name);
   const [description, setDescription] = useState(agent.description);
   const [avatar, setAvatar] = useState(agent.avatar || "");
   const [activeSection, setActiveSection] = useState<Section>("general");
-  const [workspaceFiles, setWorkspaceFiles] = useState<Record<string, string>>(
-    {}
-  );
+  const [workspaceFiles, setWorkspaceFiles] = useState<Record<string, string>>({});
+  const [originalFiles, setOriginalFiles] = useState<Record<string, string>>({});
+  const [activeFile, setActiveFile] = useState(FILE_TABS[0].file);
   const [skills, setSkills] = useState<SkillInfo[]>([]);
   const [loadingWorkspace, setLoadingWorkspace] = useState(false);
+  const [savingFile, setSavingFile] = useState(false);
+  const [fileError, setFileError] = useState("");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   useEffect(() => {
@@ -94,30 +94,73 @@ export function AgentSettingsDialog({
     setDescription(agent.description);
     setAvatar(agent.avatar || "");
     setActiveSection("general");
+    setActiveFile(FILE_TABS[0].file);
   }, [agent]);
 
+  // Load workspace files and skills on open
   useEffect(() => {
     if (!open) return;
-    setLoadingWorkspace(true);
-
-    fetch(`/api/workspace?agentId=${agent.id}`)
+    loadFiles();
+    fetch(`/api/skills?agentId=${agent.id}`, { headers: gwHeaders })
       .then((r) => r.json())
-      .then((data) => {
-        if (data.files) setWorkspaceFiles(data.files);
-      })
-      .catch(() => {})
-      .finally(() => setLoadingWorkspace(false));
-
-    fetch(`/api/skills?agentId=${agent.id}`)
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.skills) setSkills(data.skills);
-      })
+      .then((data) => { if (data.skills) setSkills(data.skills); })
       .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agent.id, open]);
 
-  function updateWorkspaceFile(filename: string, content: string) {
-    setWorkspaceFiles((prev) => ({ ...prev, [filename]: content }));
+  async function loadFiles() {
+    setLoadingWorkspace(true);
+    setFileError("");
+    try {
+      const res = await fetch(`/api/workspace?agentId=${agent.id}`, { headers: gwHeaders });
+      const data = await res.json();
+      if (data.files) {
+        setWorkspaceFiles(data.files);
+        setOriginalFiles(data.files);
+      }
+    } catch {
+      setFileError("Failed to load files");
+    } finally {
+      setLoadingWorkspace(false);
+    }
+  }
+
+  async function handleRefreshFile() {
+    setFileError("");
+    setLoadingWorkspace(true);
+    try {
+      const res = await fetch(`/api/workspace?agentId=${agent.id}&file=${activeFile}`, { headers: gwHeaders });
+      const data = await res.json();
+      setWorkspaceFiles((prev) => ({ ...prev, [activeFile]: data.content || "" }));
+      setOriginalFiles((prev) => ({ ...prev, [activeFile]: data.content || "" }));
+    } catch {
+      setFileError("Failed to refresh file");
+    } finally {
+      setLoadingWorkspace(false);
+    }
+  }
+
+  async function handleSaveFile() {
+    const content = workspaceFiles[activeFile] ?? "";
+    setSavingFile(true);
+    setFileError("");
+    try {
+      const res = await fetch("/api/workspace", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...gwHeaders },
+        body: JSON.stringify({ agentId: agent.id, file: activeFile, content }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setFileError(data.error || `Failed to save: ${res.status}`);
+      } else {
+        setOriginalFiles((prev) => ({ ...prev, [activeFile]: content }));
+      }
+    } catch (e) {
+      setFileError(`Failed to save: ${e}`);
+    } finally {
+      setSavingFile(false);
+    }
   }
 
   async function autoSaveAgent(updates: Partial<{ name: string; description: string; avatar: string }>) {
@@ -139,16 +182,6 @@ export function AgentSettingsDialog({
     autoSaveAgent({ avatar: newAvatar });
   }
 
-  async function handleWorkspaceBlur(filename: string) {
-    const content = workspaceFiles[filename];
-    if (content === undefined) return;
-    await fetch("/api/workspace", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ agentId: agent.id, file: filename, content }),
-    });
-  }
-
   function handleDelete() {
     setShowDeleteConfirm(true);
   }
@@ -160,36 +193,9 @@ export function AgentSettingsDialog({
   }
 
   const isDefaultAgent = agent.id === "main";
-
-  const sectionLabel =
-    sections.find((s) => s.id === activeSection)?.label ?? "General";
-
-  function renderWorkspaceEditor(
-    filename: string,
-    label: string,
-    desc: string
-  ) {
-    return (
-      <div className="space-y-4">
-        <div>
-          <Label>{label}</Label>
-          <p className="text-sm text-muted-foreground mt-1 mb-3">{desc}</p>
-          {loadingWorkspace ? (
-            <div className="flex items-center gap-2 text-muted-foreground text-sm py-4">
-              <Loader2 className="h-4 w-4 animate-spin" /> Loading...
-            </div>
-          ) : (
-            <Textarea
-              value={workspaceFiles[filename] || ""}
-              onChange={(e) => updateWorkspaceFile(filename, e.target.value)}
-              onBlur={() => handleWorkspaceBlur(filename)}
-              className="font-mono text-sm min-h-[300px] resize-none"
-            />
-          )}
-        </div>
-      </div>
-    );
-  }
+  const sectionLabel = sectionList.find((s) => s.id === activeSection)?.label ?? "General";
+  const currentTab = FILE_TABS.find((t) => t.file === activeFile) || FILE_TABS[0];
+  const fileChanged = (workspaceFiles[activeFile] ?? "") !== (originalFiles[activeFile] ?? "");
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -198,7 +204,6 @@ export function AgentSettingsDialog({
         <div className="flex h-[600px]">
           {/* LEFT - Sidebar */}
           <div className="w-[200px] border-r bg-muted/40 flex flex-col">
-            {/* Agent avatar + name */}
             <div className="flex items-center gap-3 px-4 py-3 border-b">
               <div className="shrink-0">
                 {isEmojiAvatar(avatar) ? (
@@ -219,9 +224,8 @@ export function AgentSettingsDialog({
               </div>
             </div>
 
-            {/* Navigation */}
             <nav className="flex flex-col gap-1 p-2 flex-1 overflow-y-auto">
-              {sections.map((section) => {
+              {sectionList.map((section) => {
                 const Icon = section.icon;
                 const isActive = activeSection === section.id;
                 return (
@@ -244,7 +248,6 @@ export function AgentSettingsDialog({
 
             <Separator />
 
-            {/* Delete button - hidden for default agent */}
             {!isDefaultAgent && (
               <div className="p-2">
                 <button
@@ -260,24 +263,24 @@ export function AgentSettingsDialog({
 
           {/* RIGHT - Content */}
           <div className="flex-1 flex flex-col min-w-0">
-            {/* Breadcrumb header */}
+            {/* Breadcrumb */}
             <div className="flex items-center gap-1.5 px-6 py-3 text-sm text-muted-foreground border-b">
               <span>Settings</span>
               <ChevronRight className="h-3.5 w-3.5" />
-              <span className="text-foreground font-medium">
-                {sectionLabel}
-              </span>
+              <span className="text-foreground font-medium">{sectionLabel}</span>
               <button
                 onClick={() => onOpenChange(false)}
-                className="ml-auto rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                className="ml-auto rounded-sm opacity-70 hover:opacity-100"
               >
                 <X className="h-4 w-4" />
-                <span className="sr-only">Close</span>
               </button>
             </div>
 
-            {/* Scrollable content */}
-            <div className="flex-1 overflow-y-auto px-6 py-5">
+            {/* Content */}
+            <div className={cn(
+              "flex-1 min-h-0",
+              activeSection === "files" ? "flex flex-col" : "overflow-y-auto px-6 py-5"
+            )}>
               {activeSection === "general" && (
                 <div className="space-y-5">
                   <AvatarPicker
@@ -314,122 +317,119 @@ export function AgentSettingsDialog({
                 </div>
               )}
 
-              {activeSection === "soul" &&
-                renderWorkspaceEditor(
-                  "SOUL.md",
-                  "SOUL.md",
-                  "Define this agent's personality, tone, and behavior."
-                )}
+              {activeSection === "files" && (
+                <>
+                  {/* Horizontal file tabs */}
+                  <div className="flex gap-1 overflow-x-auto border-b px-6 pt-3 shrink-0">
+                    {FILE_TABS.map((tab) => (
+                      <button
+                        key={tab.file}
+                        onClick={() => { setActiveFile(tab.file); setFileError(""); }}
+                        className={cn(
+                          "px-3 py-1.5 text-xs font-medium whitespace-nowrap rounded-t-md border-b-2 transition-colors",
+                          activeFile === tab.file
+                            ? "border-primary text-foreground bg-background"
+                            : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                        )}
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
 
-              {activeSection === "identity" &&
-                renderWorkspaceEditor(
-                  "IDENTITY.md",
-                  "IDENTITY.md",
-                  "Agent name, ID, specialty, and role description."
-                )}
+                  {/* File description */}
+                  <div className="flex items-center gap-2 px-6 pt-3 shrink-0">
+                    <code className="text-xs font-mono text-muted-foreground">{currentTab.file}</code>
+                    <span className="text-xs text-muted-foreground">—</span>
+                    <span className="text-xs text-muted-foreground">{currentTab.desc}</span>
+                  </div>
 
-              {activeSection === "instructions" &&
-                renderWorkspaceEditor(
-                  "AGENTS.md",
-                  "AGENTS.md",
-                  "Coding guidelines, instructions, and agent-specific rules."
-                )}
+                  {/* Editor - fills remaining space */}
+                  <div className="flex-1 min-h-0 px-6 py-2">
+                    {loadingWorkspace ? (
+                      <div className="flex items-center gap-2 text-muted-foreground text-sm h-full justify-center">
+                        <Loader2 className="h-4 w-4 animate-spin" /> Loading...
+                      </div>
+                    ) : (
+                      <Textarea
+                        value={workspaceFiles[activeFile] || ""}
+                        onChange={(e) => {
+                          setWorkspaceFiles((prev) => ({ ...prev, [activeFile]: e.target.value }));
+                          setFileError("");
+                        }}
+                        className="font-mono text-sm h-full resize-none"
+                      />
+                    )}
+                  </div>
 
-              {activeSection === "user" &&
-                renderWorkspaceEditor(
-                  "USER.md",
-                  "USER.md",
-                  "Information about the human user interacting with this agent."
-                )}
-
-              {activeSection === "tools" &&
-                renderWorkspaceEditor(
-                  "TOOLS.md",
-                  "TOOLS.md",
-                  "Tool configuration and usage notes for this agent."
-                )}
-
-              {activeSection === "heartbeat" &&
-                renderWorkspaceEditor(
-                  "HEARTBEAT.md",
-                  "HEARTBEAT.md",
-                  "Periodic task definitions that run on a schedule."
-                )}
+                  {/* Fixed footer */}
+                  <div className="flex items-center border-t px-6 py-2 shrink-0">
+                    {fileError && (
+                      <p className="text-sm text-destructive flex-1 mr-2 truncate">{fileError}</p>
+                    )}
+                    <div className="flex gap-2 ml-auto">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleRefreshFile}
+                        disabled={loadingWorkspace}
+                      >
+                        <RefreshCw className={cn("h-3.5 w-3.5 mr-1.5", loadingWorkspace && "animate-spin")} />
+                        Refresh
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={handleSaveFile}
+                        disabled={savingFile || !fileChanged}
+                      >
+                        {savingFile ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Save className="h-3.5 w-3.5 mr-1.5" />}
+                        Save
+                      </Button>
+                    </div>
+                  </div>
+                </>
+              )}
 
               {activeSection === "skills" && (
                 <div className="space-y-4">
                   <div>
                     <Label>Agent Skills</Label>
-                    <p className="text-sm text-muted-foreground mt-1 mb-3">
-                      Skills specific to this agent.
-                    </p>
+                    <p className="text-sm text-muted-foreground mt-1 mb-3">Skills specific to this agent.</p>
                     {skills.filter((s) => s.scope === "agent").length === 0 ? (
-                      <p className="text-sm text-muted-foreground italic">
-                        No agent-specific skills installed.
-                      </p>
+                      <p className="text-sm text-muted-foreground italic">No agent-specific skills installed.</p>
                     ) : (
                       <div className="space-y-2">
-                        {skills
-                          .filter((s) => s.scope === "agent")
-                          .map((skill) => (
-                            <div
-                              key={skill.name}
-                              className="flex items-center gap-3 rounded-lg border p-3"
-                            >
-                              <Puzzle className="h-5 w-5 text-muted-foreground" />
-                              <div>
-                                <p className="text-sm font-medium">
-                                  {skill.name}
-                                </p>
-                                {skill.description && (
-                                  <p className="text-xs text-muted-foreground">
-                                    {skill.description}
-                                  </p>
-                                )}
-                              </div>
-                              <span className="ml-auto text-xs bg-primary/10 text-primary px-2 py-0.5 rounded">
-                                agent
-                              </span>
+                        {skills.filter((s) => s.scope === "agent").map((skill) => (
+                          <div key={skill.name} className="flex items-center gap-3 rounded-lg border p-3">
+                            <Puzzle className="h-5 w-5 text-muted-foreground" />
+                            <div>
+                              <p className="text-sm font-medium">{skill.name}</p>
+                              {skill.description && <p className="text-xs text-muted-foreground">{skill.description}</p>}
                             </div>
-                          ))}
+                            <span className="ml-auto text-xs bg-primary/10 text-primary px-2 py-0.5 rounded">agent</span>
+                          </div>
+                        ))}
                       </div>
                     )}
                   </div>
                   <Separator />
                   <div>
                     <Label>Global Skills</Label>
-                    <p className="text-sm text-muted-foreground mt-1 mb-3">
-                      Skills available to all agents.
-                    </p>
+                    <p className="text-sm text-muted-foreground mt-1 mb-3">Skills available to all agents.</p>
                     {skills.filter((s) => s.scope === "global").length === 0 ? (
-                      <p className="text-sm text-muted-foreground italic">
-                        No global skills installed.
-                      </p>
+                      <p className="text-sm text-muted-foreground italic">No global skills installed.</p>
                     ) : (
                       <div className="space-y-2">
-                        {skills
-                          .filter((s) => s.scope === "global")
-                          .map((skill) => (
-                            <div
-                              key={skill.name}
-                              className="flex items-center gap-3 rounded-lg border p-3"
-                            >
-                              <Puzzle className="h-5 w-5 text-muted-foreground" />
-                              <div>
-                                <p className="text-sm font-medium">
-                                  {skill.name}
-                                </p>
-                                {skill.description && (
-                                  <p className="text-xs text-muted-foreground">
-                                    {skill.description}
-                                  </p>
-                                )}
-                              </div>
-                              <span className="ml-auto text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded">
-                                global
-                              </span>
+                        {skills.filter((s) => s.scope === "global").map((skill) => (
+                          <div key={skill.name} className="flex items-center gap-3 rounded-lg border p-3">
+                            <Puzzle className="h-5 w-5 text-muted-foreground" />
+                            <div>
+                              <p className="text-sm font-medium">{skill.name}</p>
+                              {skill.description && <p className="text-xs text-muted-foreground">{skill.description}</p>}
                             </div>
-                          ))}
+                            <span className="ml-auto text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded">global</span>
+                          </div>
+                        ))}
                       </div>
                     )}
                   </div>
@@ -440,39 +440,31 @@ export function AgentSettingsDialog({
                 <div className="space-y-5">
                   <div>
                     <Label>Agent ID</Label>
-                    <code className="mt-2 block rounded-md bg-muted px-3 py-2 text-sm font-mono">
-                      {agent.id}
+                    <code className="mt-2 block rounded-md bg-muted px-3 py-2 text-sm font-mono">{agent.id}</code>
+                  </div>
+                  <div>
+                    <Label>Workspace</Label>
+                    <code className="mt-2 block rounded-md bg-muted px-3 py-2 text-sm font-mono break-all">
+                      {agent.id === "main" ? "~/.openclaw" : `~/.openclaw/workspace-${agent.id}`}
                     </code>
                   </div>
                   <div>
                     <Label>Session Key</Label>
-                    <code className="mt-2 block rounded-md bg-muted px-3 py-2 text-sm font-mono">
-                      agent:{agent.id}:chatclaw:dm
-                    </code>
+                    <code className="mt-2 block rounded-md bg-muted px-3 py-2 text-sm font-mono">agent:{agent.id}:chatclaw:dm</code>
                   </div>
                   <div>
                     <Label>Model</Label>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      Model selection is determined by the gateway
-                      configuration.
-                    </p>
+                    <p className="mt-1 text-sm text-muted-foreground">Model selection is determined by the gateway configuration.</p>
                   </div>
                   {!isDefaultAgent && (
                     <>
                       <Separator />
                       <div>
-                        <h3 className="text-sm font-semibold text-destructive">
-                          Danger Zone
-                        </h3>
+                        <h3 className="text-sm font-semibold text-destructive">Danger Zone</h3>
                         <p className="text-sm text-muted-foreground mt-1">
-                          Permanently delete this agent and all associated data.
-                          This action cannot be undone.
+                          Permanently delete this agent and all associated data. This action cannot be undone.
                         </p>
-                        <Button
-                          variant="destructive"
-                          onClick={handleDelete}
-                          className="mt-3"
-                        >
+                        <Button variant="destructive" onClick={handleDelete} className="mt-3">
                           <Trash2 className="h-4 w-4 mr-2" />
                           Delete Agent
                         </Button>
@@ -482,7 +474,6 @@ export function AgentSettingsDialog({
                 </div>
               )}
             </div>
-
           </div>
         </div>
       </DialogContent>

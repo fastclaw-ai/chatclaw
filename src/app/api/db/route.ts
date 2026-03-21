@@ -105,6 +105,12 @@ export async function POST(req: NextRequest) {
           description: params.description || "",
           specialty: params.specialty || "general",
           createdAt: params.createdAt,
+        }).onConflictDoUpdate({
+          target: schema.agents.id,
+          set: {
+            companyId: params.companyId,
+            name: params.name,
+          },
         }).run();
         return NextResponse.json({ ok: true });
       }
@@ -199,11 +205,15 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ data: rows.map(r => parseMessage(r as unknown as Record<string, unknown>)) });
       }
       case "getConversationsByTarget": {
+        const conditions = [
+          eq(schema.conversations.targetType, params.targetType),
+          eq(schema.conversations.targetId, params.targetId),
+        ];
+        if (params.companyId) {
+          conditions.push(eq(schema.conversations.companyId, params.companyId));
+        }
         const rows = getDb().select().from(schema.conversations)
-          .where(and(
-            eq(schema.conversations.targetType, params.targetType),
-            eq(schema.conversations.targetId, params.targetId)
-          ))
+          .where(and(...conditions))
           .all()
           .sort((a, b) => b.updatedAt - a.updatedAt);
         return NextResponse.json({ data: rows.map(snakeToCamel) });

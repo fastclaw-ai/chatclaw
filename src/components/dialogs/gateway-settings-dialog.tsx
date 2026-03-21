@@ -18,10 +18,10 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { useStore } from "@/lib/store";
 import { useAppConfig } from "@/hooks/use-app-config";
-import { testConnection } from "@/lib/runtime";
+import { testConnection, gatewayRpc } from "@/lib/runtime";
 import { cn } from "@/lib/utils";
 import {
-  Building, Wifi, Wrench, Trash2, ChevronRight,
+  Building, Wifi, Wrench, Trash2, ChevronRight, RefreshCw,
   Loader2, CheckCircle2, XCircle, WifiOff, X, FileCode,
 } from "lucide-react";
 import { AvatarPicker } from "@/components/avatar-picker";
@@ -73,13 +73,18 @@ export function GatewaySettingsDialog({
   const [urlError, setUrlError] = useState("");
   const [testState, setTestState] = useState<"idle" | "testing" | "success" | "error">("idle");
   const [testError, setTestError] = useState("");
+  const [testConfigHint, setTestConfigHint] = useState("");
   const [activeSection, setActiveSection] = useState<Section>("general");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [configContent, setConfigContent] = useState("");
-  const [configPath, setConfigPath] = useState("");
+  const [configOriginal, setConfigOriginal] = useState("");
+  const [configHash, setConfigHash] = useState("");
   const [loadingConfig, setLoadingConfig] = useState(false);
+  const [savingConfig, setSavingConfig] = useState(false);
   const [configError, setConfigError] = useState("");
 
+  // Reset form when company ID changes (not on every company data update)
+  const companyId = company?.id;
   useEffect(() => {
     if (company) {
       setName(company.name);
@@ -91,23 +96,43 @@ export function GatewaySettingsDialog({
       setChannels(company.channels || "");
       setUrlError("");
       setActiveSection("general");
+      setConfigContent("");
+      setConfigOriginal("");
+      setConfigError("");
     }
-  }, [company]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [companyId]);
 
-  // Load openclaw.json when switching to config tab
+  // Load config from gateway when switching to config tab
   useEffect(() => {
-    if ((activeSection === "config" || activeSection === "advanced") && !configPath) {
+    if (activeSection === "config" && !configContent && gatewayUrl) {
       setLoadingConfig(true);
-      fetch("/api/openclaw-config")
-        .then((r) => r.json())
-        .then((data) => {
-          setConfigContent(data.content || "");
-          setConfigPath(data.configPath || "");
+      setConfigError("");
+      gatewayRpc(gatewayUrl, gatewayToken, "config.get")
+        .then((result) => {
+          if (!result.ok) throw new Error(result.error?.message || "Failed");
+          setConfigHash((result.payload?.hash as string) || "");
+          const raw = result.payload?.raw as string | undefined;
+          if (raw) {
+            try {
+              const parsed = JSON.parse(raw);
+              const formatted = JSON.stringify(parsed, null, 2);
+              setConfigContent(formatted);
+              setConfigOriginal(formatted);
+            } catch {
+              setConfigContent(raw);
+              setConfigOriginal(raw);
+            }
+          } else {
+            const formatted = JSON.stringify(result.payload, null, 2);
+            setConfigContent(formatted);
+            setConfigOriginal(formatted);
+          }
         })
-        .catch(() => {})
+        .catch((e) => setConfigError(`Failed to load config: ${e.message || e}`))
         .finally(() => setLoadingConfig(false));
     }
-  }, [activeSection, configPath]);
+  }, [activeSection, configContent, gatewayUrl, gatewayToken]);
 
   if (!company) return null;
 
@@ -117,12 +142,14 @@ export function GatewaySettingsDialog({
     if (!gatewayUrl || !gatewayToken) return;
     setTestState("testing");
     setTestError("");
+    setTestConfigHint("");
     const result = await testConnection(gatewayUrl, gatewayToken, "openclaw");
     if (result.ok) {
       setTestState("success");
     } else {
       setTestState("error");
       setTestError(result.error || "Connection failed");
+      if (result.configHint) setTestConfigHint(result.configHint);
     }
   }
 
@@ -181,24 +208,55 @@ export function GatewaySettingsDialog({
     autoSaveCompany({});
   }
 
-  async function handleConfigBlur() {
+  async function handleConfigSave() {
     if (!configContent) return;
     // Validate JSON
+    let parsed;
     try {
-      JSON.parse(configContent);
+      parsed = JSON.parse(configContent);
     } catch {
       setConfigError("Invalid JSON");
       return;
     }
     setConfigError("");
-    const res = await fetch("/api/openclaw-config", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content: configContent }),
-    });
-    if (!res.ok) {
-      const data = await res.json();
-      setConfigError(data.error || "Failed to save config");
+    setSavingConfig(true);
+    try {
+      const result = await gatewayRpc(gatewayUrl, gatewayToken, "config.apply", { raw: JSON.stringify(parsed, null, 2), baseHash: configHash });
+      if (!result.ok) {
+        setConfigError(`Failed to save: ${result.error?.message || "Unknown error"}`);
+      } else {
+        const formatted = JSON.stringify(parsed, null, 2);
+        setConfigContent(formatted);
+        setConfigOriginal(formatted);
+      }
+    } catch (e) {
+      setConfigError(`Failed to save: ${e}`);
+    } finally {
+      setSavingConfig(false);
+    }
+  }
+
+  async function handleConfigRefresh() {
+    if (!gatewayUrl) return;
+    setLoadingConfig(true);
+    setConfigError("");
+    try {
+      const result = await gatewayRpc(gatewayUrl, gatewayToken, "config.get");
+      if (!result.ok) throw new Error(result.error?.message || "Failed");
+      setConfigHash((result.payload?.hash as string) || "");
+      const raw = result.payload?.raw as string | undefined;
+      let formatted: string;
+      if (raw) {
+        try { formatted = JSON.stringify(JSON.parse(raw), null, 2); } catch { formatted = raw; }
+      } else {
+        formatted = JSON.stringify(result.payload, null, 2);
+      }
+      setConfigContent(formatted);
+      setConfigOriginal(formatted);
+    } catch (e) {
+      setConfigError(`Failed to load config: ${e}`);
+    } finally {
+      setLoadingConfig(false);
     }
   }
 
@@ -360,7 +418,6 @@ export function GatewaySettingsDialog({
                       className="mt-2 font-mono text-sm"
                     />
                   </div>
-
                   <div className="flex gap-2">
                     <Button
                       variant="outline"
@@ -378,35 +435,61 @@ export function GatewaySettingsDialog({
                     </Button>
                   </div>
                   {testError && (
-                    <p className="text-sm text-destructive">{testError}</p>
+                    <div className="space-y-2">
+                      <p className="text-sm text-destructive">{testError}</p>
+                      {testConfigHint && (
+                        <div>
+                          <p className="text-xs text-muted-foreground mb-1">Add the following to your OpenClaw config:</p>
+                          <pre className="text-xs bg-muted rounded-md p-3 font-mono overflow-x-auto select-all">{testConfigHint}</pre>
+                        </div>
+                      )}
+                    </div>
                   )}
+
                 </div>
               )}
 
               {activeSection === "config" && (
-                <div className="space-y-3">
-                  <div>
+                <div className="flex flex-col h-full">
+                  <div className="mb-2">
                     <Label>openclaw.json</Label>
-                    <code className="mt-1 block text-xs text-muted-foreground font-mono">
-                      {configPath || "~/.openclaw/openclaw.json"}
-                    </code>
                   </div>
                   {loadingConfig ? (
                     <div className="flex items-center gap-2 text-muted-foreground text-sm py-4">
-                      <Loader2 className="h-4 w-4 animate-spin" /> Loading...
+                      <Loader2 className="h-4 w-4 animate-spin" /> Loading config from gateway...
                     </div>
                   ) : (
-                    <textarea
-                      value={configContent}
-                      onChange={(e) => { setConfigContent(e.target.value); setConfigError(""); }}
-                      onBlur={handleConfigBlur}
-                      spellCheck={false}
-                      className="w-full rounded-md border bg-background px-3 py-2 font-mono text-xs leading-relaxed outline-none focus:ring-1 focus:ring-primary/30 overflow-auto whitespace-pre"
-                      style={{ minHeight: 350, resize: "vertical", tabSize: 2 }}
-                    />
-                  )}
-                  {configError && (
-                    <p className="text-sm text-destructive">{configError}</p>
+                    <>
+                      <textarea
+                        value={configContent}
+                        onChange={(e) => { setConfigContent(e.target.value); setConfigError(""); }}
+                        spellCheck={false}
+                        className="flex-1 w-full rounded-md border bg-background px-3 py-2 font-mono text-xs leading-relaxed outline-none focus:ring-1 focus:ring-primary/30 overflow-auto whitespace-pre"
+                        style={{ minHeight: 200, resize: "none", tabSize: 2 }}
+                      />
+                      {configError && (
+                        <p className="text-sm text-destructive mt-2">{configError}</p>
+                      )}
+                      <div className="flex justify-end gap-2 mt-3">
+                        <Button
+                          variant="outline"
+                          onClick={handleConfigRefresh}
+                          disabled={loadingConfig}
+                          size="sm"
+                        >
+                          <RefreshCw className={cn("h-4 w-4 mr-2", loadingConfig && "animate-spin")} />
+                          Refresh
+                        </Button>
+                        <Button
+                          onClick={handleConfigSave}
+                          disabled={savingConfig || configContent === configOriginal}
+                          size="sm"
+                        >
+                          {savingConfig && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                          Save Config
+                        </Button>
+                      </div>
+                    </>
                   )}
                 </div>
               )}

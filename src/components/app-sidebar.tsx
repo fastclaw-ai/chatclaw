@@ -105,7 +105,7 @@ export function AppSidebar() {
                     <ChevronsUpDown className="ml-auto h-4 w-4" />
                   </SidebarMenuButton>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent className="w-[--radix-dropdown-menu-trigger-width]" align="start">
+                <DropdownMenuContent className="w-[--radix-dropdown-menu-trigger-width] min-w-[240px]" align="start">
                   {state.companies.map((company) => {
                     const isActive = company.id === state.activeCompanyId;
                     return (
@@ -146,20 +146,22 @@ export function AppSidebar() {
                 </span>
               </SidebarMenuButton>
             )}
-            <SidebarMenuAction
-              showOnHover
-              onClick={() => setShowSettings(true)}
-              title="Settings"
-              className="!top-1/2 !-translate-y-1/2"
-            >
-              <div className="relative">
-                <Settings className="h-4 w-4" />
-                <span className={cn(
-                  "absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full",
-                  isConnected ? "bg-green-500" : "bg-red-500"
-                )} />
-              </div>
-            </SidebarMenuAction>
+            {!multiCompany && (
+              <SidebarMenuAction
+                showOnHover
+                onClick={() => setShowSettings(true)}
+                title="Settings"
+                className="!top-1/2 !-translate-y-1/2"
+              >
+                <div className="relative">
+                  <Settings className="h-4 w-4" />
+                  <span className={cn(
+                    "absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full",
+                    isConnected ? "bg-green-500" : "bg-red-500"
+                  )} />
+                </div>
+              </SidebarMenuAction>
+            )}
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarHeader>

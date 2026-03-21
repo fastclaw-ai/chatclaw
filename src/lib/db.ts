@@ -115,8 +115,8 @@ export async function getMessagesByConversation(conversationId: string): Promise
 
 // ── Conversation helpers ──────────────────────────────────────────
 
-export async function getConversationsByTarget(targetType: string, targetId: string): Promise<Conversation[]> {
-  return (await getImpl()).getConversationsByTarget(targetType, targetId);
+export async function getConversationsByTarget(targetType: string, targetId: string, companyId?: string): Promise<Conversation[]> {
+  return (await getImpl()).getConversationsByTarget(targetType, targetId, companyId);
 }
 
 export async function createConversation(conv: Conversation): Promise<void> {

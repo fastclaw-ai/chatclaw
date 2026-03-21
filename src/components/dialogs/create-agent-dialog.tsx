@@ -34,10 +34,12 @@ export function CreateAgentDialog({
   const [description, setDescription] = useState("");
   const [specialty, setSpecialty] = useState<AgentSpecialty>("general");
   const [creating, setCreating] = useState(false);
+  const [error, setError] = useState("");
 
   async function handleCreate() {
     if (!name.trim() || !state.activeCompanyId || creating) return;
     setCreating(true);
+    setError("");
     try {
       await actions.createAgent({
         companyId: state.activeCompanyId,
@@ -48,7 +50,10 @@ export function CreateAgentDialog({
       setName("");
       setDescription("");
       setSpecialty("general");
+      setError("");
       onOpenChange(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to create agent");
     } finally {
       setCreating(false);
     }
@@ -109,6 +114,9 @@ export function CreateAgentDialog({
             </div>
           </div>
         </div>
+        {error && (
+          <p className="text-sm text-destructive px-1">{error}</p>
+        )}
         <DialogFooter>
           <Button
             onClick={handleCreate}

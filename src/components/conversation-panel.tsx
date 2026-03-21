@@ -3,12 +3,11 @@
 import React, { useState } from "react";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
-import { MessageCircle, Plus, Trash2, PanelRightOpen, PanelRightClose, Pencil, Check, X } from "lucide-react";
+import { MessageCircle, Plus, Trash2, Pencil, Check, X as XIcon } from "lucide-react";
 import { Input } from "@/components/ui/input";
 
-export function ConversationPanel() {
+export function ConversationPanel({ onClose }: { onClose?: () => void }) {
   const { state, actions } = useStore();
-  const [collapsed, setCollapsed] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
 
@@ -19,30 +18,12 @@ export function ConversationPanel() {
     c => c.targetType === target.type && c.targetId === target.id
   );
 
-  // Check if any agent is currently streaming for this target
   const isStreaming = Object.values(state.streamingStates).some(
     s => s.isStreaming && s.targetType === target.type && s.targetId === target.id
   );
 
-  if (collapsed) {
-    return (
-      <div className="flex flex-col items-center border-l bg-muted/30 py-3 px-1.5 gap-2">
-        <button
-          onClick={() => setCollapsed(false)}
-          className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground"
-          title="Show conversations"
-        >
-          <PanelRightOpen className="h-4 w-4" />
-        </button>
-        <span className="text-[10px] text-muted-foreground writing-mode-vertical">
-          {conversations.length} chats
-        </span>
-      </div>
-    );
-  }
-
   return (
-    <div className="flex flex-col w-[280px] border-l bg-muted/30 shrink-0">
+    <div className="flex flex-col h-full">
       {/* Header */}
       <div className="flex h-12 items-center gap-2 px-3 border-b shrink-0">
         <MessageCircle className="h-4 w-4 text-muted-foreground" />
@@ -54,13 +35,15 @@ export function ConversationPanel() {
         >
           <Plus className="h-3.5 w-3.5" />
         </button>
-        <button
-          onClick={() => setCollapsed(true)}
-          className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
-          title="Collapse panel"
-        >
-          <PanelRightClose className="h-3.5 w-3.5" />
-        </button>
+        {onClose && (
+          <button
+            onClick={onClose}
+            className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
+            title="Close"
+          >
+            <XIcon className="h-3.5 w-3.5" />
+          </button>
+        )}
       </div>
 
       {/* Conversation list */}
@@ -113,14 +96,14 @@ export function ConversationPanel() {
                       onClick={e => { e.stopPropagation(); setEditingId(null); }}
                       className="p-0.5 text-muted-foreground"
                     >
-                      <X className="h-3 w-3" />
+                      <XIcon className="h-3 w-3" />
                     </button>
                   </div>
                 ) : (
                   <>
                     <MessageCircle className="h-3.5 w-3.5 shrink-0 opacity-50" />
                     <span className="truncate flex-1">{conv.title}</span>
-                    <span className="text-[10px] text-muted-foreground shrink-0 hidden group-hover:hidden">
+                    <span className="text-[10px] text-muted-foreground shrink-0 group-hover:hidden">
                       {time}
                     </span>
                     <div className="hidden group-hover:flex items-center gap-0.5 shrink-0">
