@@ -2,7 +2,7 @@
 
 An open-source multi-agent chat platform. Create virtual companies, hire AI agent employees, build teams for collaborative work.
 
-Works with [OpenClaw](https://github.com/anthropics/openclaw) gateway or any OpenAI-compatible API.
+Works with [OpenClaw](https://github.com/openclaw/openclaw) gateway or any OpenAI-compatible API.
 
 ![ChatClaw Preview](./preview.png)
 
@@ -60,7 +60,7 @@ Works with [OpenClaw](https://github.com/anthropics/openclaw) gateway or any Ope
 ## Quick Start
 
 ```bash
-git clone https://github.com/anthropics/chatclaw.git
+git clone https://github.com/fastclaw-ai/chatclaw.git
 cd chatclaw
 pnpm install
 pnpm dev
